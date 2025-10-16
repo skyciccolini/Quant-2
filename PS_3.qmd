@@ -147,12 +147,11 @@ We are set to only sample the prior (`sample_prior = TRUE`), so all the samples 
 
 ```{r}
 #| eval: true
-### def missing something here
 PP <- ulam(
   alist(
     horn_length ~ dnorm(mu, sigma),
     mu <- b[group],
-    b[group] ~ dnorm(20, 7.5),
+    b[group] ~ dnorm(24, 7.5),
     sigma ~ dhalfnorm(0, 5)
   ),
   data = lizard,
@@ -187,7 +186,7 @@ pp_dist |>
   theme(legend.position = "none")
 ```
 
-Try out different priors for `a_group` until you find a prior that seems good to you. Because we are not looking at the values for the `sigma` standard deviation (we just asked you to extract the `b` parameter matrix from the samples, ignoring `sigma` for now), changing its value won't alter the pattern. If we wanted to, we could choose rows from both priors and simulate data using the full set of parameters, which would be the most correct way to do this simulation. But we should be fine just using values for `horn_length`.
+Try out different priors for `b_group` until you find a prior that seems good to you. Because we are not looking at the values for the `sigma` standard deviation (we just asked you to extract the `b` parameter matrix from the samples, ignoring `sigma` for now), changing its value won't alter the pattern. If we wanted to, we could choose rows from both priors and simulate data using the full set of parameters, which would be the most correct way to do this simulation. But we should be fine just using values for `horn_length`.
 
 ### Final model specification
 
@@ -197,6 +196,8 @@ Add the values that you chose for the priors to the model statement below:
 \begin{align}
   \mathrm{horn\_length} & \sim Normal(\mu, \sigma) \\
   \mu & = b[\mathrm{group}] \\
+  b[\mathrm{group}] & \sim Normal(24, 7.5) \\
+  \sigma & \sim HalfNormal(0, 5) \\
 \end{align}
 ```
 ### Sampling
@@ -212,30 +213,52 @@ Finally, we can sample the model. Copy the `ulam()` code from above and make a f
 This sampling regime will give us 10,000 draws after warmup.
 
 ```{r}
-
+fm <- ulam(
+  alist(
+    horn_length ~ dnorm(mu, sigma),
+    mu <- b[group],
+    b[group] ~ dnorm(24, 7.5),
+    sigma ~ dhalfnorm(0, 5)
+  ),
+  data = lizard,
+  sample_prior = FALSE,
+  chain = 4,
+  iter = 5e3,
+  refresh = 1e3
+)
 ```
 
 Make note of any warnings or errors from `ulam()` or stan.
+> There were some warning about chain 1 and how the model may be ill-conditioned or misspecified.
+
 
 ### Diagnostics
 
 Pass the model object to either `summary()` or `precis()`. Check for adequate sampling as evidenced by sufficiently large `n_eff` and `Rhat4` of \~1.
 
 ```{r}
+summary(fm)
 
 ```
 
 What do you learn from the summary?
+> The rhat is good at 1 and ess_bulk is in the thousands which is good.
 
 Now check the sampling visually by making a trace plot (`traceplot()`) and rank histogram plot (`trankplot()`).
 
 ```{r}
+traceplot(fm)
+
+trankplot(fm)
 
 ```
 
 What do you learn from the visual checks?
+> Both of these visual checks seem good to me. The traceplot for the two groups look normal. The sigma traceplot looks a little funky.
 
 Taken together, do you think that the sampling was successful?
+> Yes? ###
+
 
 ### Posterior predictive check
 
@@ -249,7 +272,13 @@ We would like to get the two sets of samples into the same R object with a new c
 -   Now pivot the full set longer using all variables except `PP`. Set the names to `group` and the values to `horn_length`.
 
 ```{r}
+pp_dist$PP <- "Prior" 
 
+### pick up here with extracting the posterior
+pp_dist2 <- extract.samples(PP)$b |> 
+  as.data.frame() |> 
+  rename(alive = V1,
+         dead = V2)
 ```
 
 Now make a density plot of all the samples (adapting the code from above):
