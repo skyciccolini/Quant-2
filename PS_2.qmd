@@ -245,7 +245,7 @@ There is no one correct answer. Generally with Bayesian inference, the priors ar
 PP <- ulam(
   alist(
     ht99mm ~ dnorm(mu, sigma),
-    mu ~ dnorm(200, 10), ### how are mine compared to theirs?
+    mu ~ dnorm(200, 10),
     sigma ~ dhalfnorm(50, 1)
   ),
   data = che,
@@ -290,7 +290,7 @@ Either delete the `sample_prior` option or set it to `FALSE`. Then add the follo
 If you have a multicore machine, you can also use `cores = 4`. But this model should sample really fast anyway, so it's not necessary.
 
 ```{r}
-#| eval: false
+#| eval: true
 PP <- ulam(
   alist(
     ht99mm ~ dnorm(mu, sigma),
@@ -345,7 +345,6 @@ Does everything look okay from a diagnostics standpoint (`n_eff` and `Rhat`)?
 What are the means and 89% HDIs for `mu` and `sigma`? You can use the `HPDI()` function from rethinking.
 
 ```{r}
-library(rethinking)
 
 mean(post$mu)
 
@@ -408,8 +407,8 @@ From here on, use the log-transformed height. Carry out the prior predictive che
 PP <- ulam(
   alist(
     loght99mm ~ dnorm(mu, sigma),
-    mu ~ dnorm(5, 5), ### how are mine compared to theirs?
-    sigma ~ dhalfnorm(0, 1)
+    mu ~ dnorm(5, 0.25), 
+    sigma ~ dhalfnorm(0, 0.25)
   ),
   data = lac,
   sample_prior = TRUE
@@ -422,7 +421,7 @@ PP_sim <- purrr::map(
   .x = 1:20,
   .f = function(ii) {
     tibble(ID = ii,
-           ht99mm_sim = seq(0, 500, length.out = 200),
+           ht99mm_sim = seq(0, 10, length.out = 20),
            density = dnorm(ht99mm_sim,
                            mean = post$mu[ii],
                            sd = post$sigma[ii]))
@@ -432,16 +431,16 @@ PP_sim <- purrr::map(
 p_obs <- ggplot(lac, aes(loght99mm)) +
   geom_histogram(aes(y = after_stat(density)),
                  fill = "#2D5DA1", bins = 30) +
-  xlim(c(2.5, 7.5))
+  xlim(c(0, 10))
 p_pp <- ggplot(PP_sim, aes(x = ht99mm_sim, y = density, group = ID)) +
   geom_line() +
-  xlim(c(2.5, 7.5))
+  xlim(c(0, 10))
 cowplot::plot_grid(p_obs, p_pp, nrow = 2, align = "hv")
 ```
 
 What priors did you try, what did you decide to use, and explain why.
 
-> ### something is funky with my posteriors
+> I tried so many priors, but I ended up using (5, 0.25) for mu and (0, 0.25) for sigma.
 
 Carry out the sampling and posterior predictive check here:
 
@@ -450,14 +449,11 @@ Carry out the sampling and posterior predictive check here:
 PP <- ulam(
   alist(
     loght99mm ~ dnorm(mu, sigma),
-    mu ~ dnorm(200, 10),
-    sigma ~ dhalfnorm(50, 1)
+    mu ~ dnorm(5, 0.25), 
+    sigma ~ dhalfnorm(0, 0.25)
   ),
   data = lac,
-  sample_prior = FALSE,
-  iter = 5000,
-  refresh = 2500,
-  chains = 4
+  sample_prior = TRUE
 )
 
 post <- extract.samples(PP) |> as.data.frame()
@@ -467,7 +463,7 @@ PP_sim <- purrr::map(
   .x = 1:20,
   .f = function(ii) {
     tibble(ID = ii,
-           ht99mm_sim = seq(0, 500, length.out = 200),
+           ht99mm_sim = seq(0, 10, length.out = 20),
            density = dnorm(ht99mm_sim,
                            mean = post$mu[ii],
                            sd = post$sigma[ii]))
@@ -477,26 +473,26 @@ PP_sim <- purrr::map(
 p_obs <- ggplot(lac, aes(loght99mm)) +
   geom_histogram(aes(y = after_stat(density)),
                  fill = "#2D5DA1", bins = 30) +
-  xlim(c(2.5, 7.5))
+  xlim(c(0, 10))
 p_pp <- ggplot(PP_sim, aes(x = ht99mm_sim, y = density, group = ID)) +
   geom_line() +
-  xlim(c(2.5, 7.5))
+  xlim(c(0, 10))
 cowplot::plot_grid(p_obs, p_pp, nrow = 2, align = "hv")
 ```
 
 Looking at the plot of the samples from the posterior compared to the distribution of `ht99mm`, does it look like the posterior is a good representation of the data ("posterior predictive check")? It should -- and if it does not, you should rethink your priors.
 
-> 
+> Yes, the posterior distribution looks good.
 
 Use `summary()` to summarize the fit model.
 
 ```{r}
-summary()
+summary(PP)
 ```
 
 Does everything look okay from a diagnostics standpoint (`n_eff` and `Rhat`)?
 
-> 
+> The rhat is good at 1, the n_eff is in the 100s which is ok.
 
 What are the means and 89% HDIs for `mu` and `sigma`? You can use the `HPDI()` function from rethinking.
 
@@ -514,11 +510,12 @@ HPDI(post$mu)
 HPDI(post$sigma)
 ```
 
-> 
+> mu: mean 4.991544, HPDI 4.582932 5.353870 
+sigma: mean 0.1966383, HPDI 0.0002266208 0.4001367100 
 
 How do the means and HDIs of these posterior estimates compare to the values you used for the prior?
 
-> 
+> The HPDIs capture both of my priors for mu and sigma and the means are very similar as well.
 
 
 ## Sensitivity of the posterior to the prior
@@ -531,45 +528,22 @@ In the chunk below, copy the sampling code from above (the "LAC" model). Try cha
 PP <- ulam(
   alist(
     loght99mm ~ dnorm(mu, sigma),
-    mu ~ dnorm(200, 10),
-    sigma ~ dhalfnorm(50, 1)
+    mu ~ dnorm(100, 0.25), 
+    sigma ~ dhalfnorm(100, 0.25)
   ),
   data = lac,
-  sample_prior = FALSE,
-  iter = 5000,
-  refresh = 2500,
-  chains = 4
+  sample_prior = TRUE
 )
 
 post <- extract.samples(PP) |> as.data.frame()
 
-set.seed(313123)
-PP_sim <- purrr::map(
-  .x = 1:20,
-  .f = function(ii) {
-    tibble(ID = ii,
-           ht99mm_sim = seq(0, 500, length.out = 200),
-           density = dnorm(ht99mm_sim,
-                           mean = post$mu[ii],
-                           sd = post$sigma[ii]))
-  }) |> 
-  list_rbind()
-
-p_obs <- ggplot(lac, aes(loght99mm)) +
-  geom_histogram(aes(y = after_stat(density)),
-                 fill = "#2D5DA1", bins = 30) +
-  xlim(c(2.5, 7.5))
-p_pp <- ggplot(PP_sim, aes(x = ht99mm_sim, y = density, group = ID)) +
-  geom_line() +
-  xlim(c(2.5, 7.5))
-cowplot::plot_grid(p_obs, p_pp, nrow = 2, align = "hv")
-
 precis(PP)
+
 ```
 
 What do you conclude about the relationship between prior and posterior for these data and this model?
 
-> ### fix code above and run
+> Changing the mu and the sigma in the prior changes that mu and the sigma in the posterior.
 
 
 ## Looking at the samples
@@ -587,12 +561,11 @@ Make a plot of the first 25 samples from the posterior:
 - Free the y-axis scale.
 
 ```{r}
-### but make this the updated model
 PP <- ulam(
   alist(
     loght99mm ~ dnorm(mu, sigma),
-    mu ~ dnorm(200, 10),
-    sigma ~ dhalfnorm(50, 1)
+    mu ~ dnorm(5, 0.25),
+    sigma ~ dhalfnorm(0, 0.25)
   ),
   data = lac,
   sample_prior = FALSE,
@@ -603,14 +576,16 @@ PP <- ulam(
 
 post_lac <- extract.samples(PP) |> as.data.frame()
 
-### run this line by line first because its probably wrong
 post_sub <- post_lac |> 
   slice_sample(n = 25) |> 
-  mutate(Iteration = numeric(1:25)) |> 
-  pivot_longer(names_to = "Parameter",
-               values_to = "Estimate") |> 
-  ggplot(aes(x = "Iteration", y = "Estimate")) +
-  facet_wrap("Parameter", scales = "free_y")
+  mutate(Iteration = 1:25) |> 
+  pivot_longer(cols = mu:sigma,
+                names_to = "Parameter",
+                values_to = "Estimate")
+
+ggplot(data = post_sub, aes(x = Iteration, y = Estimate)) +
+  geom_point() +
+  facet_wrap("Parameter", scales = "free")
 
 post_sub
 
@@ -618,7 +593,7 @@ post_sub
 
 What do you observe about the samples? How does this compare to the samples from our "homebrew" MCMC sampler in lecture 1-3?
 
-> 
+> The samples are pretty scattered around 5.05 for mu and 0.37 for sigma.
 
 Make a scatter plot of sigma vs. mu from all the posterior samples. This is a "pairs" plot, which a common diagnostic tool for MCMC.
 
@@ -631,7 +606,7 @@ ggplot() +
 
 What do you observe in the scatter plot?
 
-> 
+> The points are all condensed around 0.37, 5.05 and then they kind of spread out equally from there.
 
 Finally load the `coda` package. Convert the posterior which is currently a data.frame to an `mcmc` object with `as.mcmc()`. Then run the autocorrelation diagnostics on this object with `autocorr.diag()`. This is similar to what we did in the lecture.
 
