@@ -274,11 +274,17 @@ We would like to get the two sets of samples into the same R object with a new c
 ```{r}
 pp_dist$PP <- "Prior" 
 
-### pick up here with extracting the posterior
 pp_dist2 <- extract.samples(PP)$b |> 
   as.data.frame() |> 
   rename(alive = V1,
          dead = V2)
+
+pp_dist2$PP <- "Posterior"
+
+pp_dist3 <- bind_rows(pp_dist, pp_dist2)
+
+pp_dist_long <- pp_dist3 |> 
+  pivot_longer(cols = -PP, names_to = "group", values_to = "horn_length")
 ```
 
 Now make a density plot of all the samples (adapting the code from above):
@@ -289,10 +295,20 @@ Now make a density plot of all the samples (adapting the code from above):
 Your plot should have four lines, two solid lines from the posterior and two dashed lines from the prior.
 
 ```{r}
+pp_dist_long$PP <- factor(pp_dist_long$PP, levels = c("Prior", "Posterior"))
+
+ggplot(data = pp_dist_long, aes(horn_length, color = "group", linetype = PP)) +
+  geom_density() +
+  facet_grid(group ~ .) +
+  cowplot::theme_cowplot() +
+  labs(x = "Horn Length (mm)", y = "Count") +
+  theme(legend.position = "none") +
+  scale_linetype_manual(values = c("Posterior" = "solid", "Prior" = "dotted"))
 
 ```
 
 How does the posterior compare to the prior?
+> ### can't get two lines
 
 Next we would like to compare the posterior to the data. We will mostly let you try to figure this out. A few suggestions:
 
@@ -302,20 +318,46 @@ Next we would like to compare the posterior to the data. We will mostly let you 
 -   Add the data separately by using `geom_density()` separately for each set of data. Set the linetype manually (i.e., outside of `aes()`).
 
 ```{r}
+lizard <- read.csv("raw_data/HornedLizards.csv") |> 
+  drop_na()
+
+lizard$PP <- "Observed"
+
+pp_dist2_long <- pp_dist2 |> 
+  pivot_longer(cols = -PP, names_to = "group", values_to = "horn_length")
+
+### can't get linetype to work
+ggplot(linetype = "PP") +
+  geom_density(data = lizard, aes(horn_length, color = group)) +
+  geom_density(data = pp_dist2_long, aes(horn_length, color = group)) +
+  facet_grid(group~.) +
+  scale_linetype_manual(values = c("Observed" = "solid", "Posterior" = "dashed"))
 
 ```
 
 How does the posterior for each group compare to the observed data?
+> The posterior adequately covers the same range as the observed data.
+
 
 ### Summarizing the posterior
 
 Compare the means of horn length in the observed data to the means (or medians) of the posterior estimates.
 
 ```{r}
+lizard |> 
+  group_by(group) |> 
+  summarise(mean = mean(lizard$horn_length))
+
+pp_dist2_long |> 
+  group_by(group) |> 
+  summarise(mean = mean(pp_dist2_long$horn_length))
+
 
 ```
 
 How do they compare?
+> The means are very close together (within 0.2). ### double check
+
 
 It is important to remember the conceptual differences between frequentist analysis (like a *t*-test) and Bayesian inference. The underlying frequentist assumption is that these samples of lizards are drawn from populations with fixed means (i.e., a fixed true mean value for horn length in each group). The Bayesian approach views the data as fixed (i.e., this is what we observe) and seeks to find the parameter estimates that are most compatible. The numerical answers are very very close (at least for this example), but the assumptions / framework are quite different. If you run `t.test()` on these data, the means that are compared are just the group means. Our Bayesian analysis gives similar values but these are posterior estimates (not just the directly calculated group means for the groups).
 
@@ -324,24 +366,32 @@ We aren't really interested in the posterior means themselves. We are interested
 Calculate the difference between dead and alive using the posterior. You can just add a column to the tibble with the posterior.
 
 ```{r}
-
+diff <- pp_dist2 |> 
+  mutate(diff = alive - dead)
 ```
 
 Make a density plot of the difference you calculated.
 
 ```{r}
+ggplot()+
+  geom_density(data = diff, aes(diff))
 
 ```
 
 What is your interpretation of the plot?
+> There seems to be a larger mean horn length for the alive lizards than the dead lizards.
 
 Finally, calculate the 89% highest density interval for the difference in any way you want (`HPDI()` from `rethinking` is fine for example).
 
 ```{r}
+HPDI(diff$diff, prob = 0.89)
+
 
 ```
 
 Does the interval agree with your assessment of the plot?
+> The HPDI is pretty wide and crosses 0, so no? ###
+
 
 ## Bivariate regression
 
@@ -359,7 +409,10 @@ The data are in `Earwigs.csv`. There are 22 observations of 2 variables:
 Load the data and plot the relationship between the proportion of earwigs with forceps and population density.
 
 ```{r}
+earwig <- read_csv("raw_data/Earwigs.csv")
 
+ggplot(data = earwig, aes(Density, Proportion_forceps)) +
+  geom_point()
 ```
 
 ### Model specification
@@ -385,6 +438,29 @@ For each section we have provided a few guiding questions (to think about but no
 -   What does a prior predictive check look like when the priors define lines, rather than means like above? You might have to expand the y-axis to see the prior predictions better when you plot them.
 
 ```{r}
+# no intercept because it doesn't make sense for a population to have a density of 0
+PP <- ulam(
+  alist(
+    Proportion_forceps ~ dnorm(mu, sigma),
+    mu <- b0 + b1 * Density,
+    b0 == 0,
+    b1 ~ dnorm(1, 5),
+    sigma ~ dhalfnorm(0, 10) ### check priors
+  ),
+  data = earwig,
+  sample_prior = TRUE
+)
+
+pp_dist <- extract.samples(PP) |> 
+  as.data.frame()
+
+pp_dist |> 
+  pivot_longer(cols = everything(),
+               names_to = "Parameter",
+               values_to = "Estimate") |> 
+  ggplot(aes(Estimate)) +
+  geom_density() +
+  facet_wrap("Parameter", scales = "free")
 
 ```
 
@@ -395,7 +471,10 @@ Add the values that you chose for the priors for `b0`, `b1`, and `sigma` to the 
 ```{=tex}
 \begin{align}
   \mathrm{Proportion\_forceps} & \sim Normal(\mu, \sigma) \\
-  \mu & = b0 + b1 \cdot \mathrm{Density} \\
+  \mu & = b1 \cdot \mathrm{Density} \\
+  b1 & = Normal(1,5)\\
+  b0 = 0\\
+  \sigma & = HalfNormal(0, 10)
 \end{align}
 ```
 ### Sampling
@@ -404,6 +483,20 @@ Add the values that you chose for the priors for `b0`, `b1`, and `sigma` to the 
 
 ```{r}
 
+fm <- ulam(
+  alist(
+    Proportion_forceps ~ dnorm(mu, sigma),
+    mu <- b0 + b1 * Density,
+    b0 == 0,
+    b1 ~ dnorm(1, 5),
+    sigma ~ dhalfnorm(0, 10) ### check priors
+  ),
+  data = earwig,
+  sample_prior = FALSE,
+  chain = 4,
+  iter = 5e3,
+  refresh = 1e3
+)
 ```
 
 ### Diagnostics
@@ -411,7 +504,10 @@ Add the values that you chose for the priors for `b0`, `b1`, and `sigma` to the 
 -   What visual and summary checks will you use to determine if the model fit adequately and without obvious errors?
 
 ```{r}
+summary(fm)
+traceplot(fm)
 
+trankplot(fm)
 ```
 
 ### Posterior predictive simulation
@@ -419,7 +515,24 @@ Add the values that you chose for the priors for `b0`, `b1`, and `sigma` to the 
 -   Similar to the prior predictive check, what does the posterior predictive check look like when the posterior samples define lines?
 
 ```{r}
+pp_dist$PP <- "Prior" 
 
+pp_dist2 <- extract.samples(PP) |> 
+  as.data.frame()
+
+pp_dist2$PP <- "Posterior"
+
+pp_dist3 <- bind_rows(pp_dist, pp_dist2)
+
+pp_dist_long <- pp_dist3 |> 
+  pivot_longer(cols = -PP, 
+               names_to = "Parameter", 
+               values_to = "Estimate")
+
+pp_dist_long |> 
+  ggplot(aes(Estimate)) +
+  geom_density() +
+  facet_wrap("Parameter", scales = "free")
 ```
 
 ### Summarizing the posterior
@@ -428,6 +541,8 @@ Add the values that you chose for the priors for `b0`, `b1`, and `sigma` to the 
 -   How will you summarize the posterior in a way that will test that hypothesis?
 
 ```{r}
+HPDI(pp_dist2$b1, prob = 0.89)
+
 
 ```
 
@@ -450,43 +565,160 @@ The knee vs. eyes contrast is not interesting for this experiment.
 This model is very similar to the first one in this problem set. Below we have given you empty headings. Adapt the code from above to test this hypothesis.
 
 ```{r}
+jetlag <- read_csv("raw_data/JetLag.csv")
+
+ggplot(data = jetlag) +
+  geom_density(aes(Shift)) +
+  facet_grid(Treatment~.)
+
+jetlag$Treatment <- as.integer(factor(jetlag$Treatment))
+
 
 ```
 
 ### Model specification
 
+```{=tex}
+\begin{align}
+  \mathrm{Shift} & \sim Normal(\mu, \sigma) \\
+  \mu & = b[\mathrm{Treatment}] \\
+\end{align}
+```
+
 ### Prior specification and prior predictive check
 
 ```{r}
+PP <- ulam(
+  alist(
+    Shift ~ dnorm(mu, sigma),
+    mu <- b[Treatment],
+    b[Treatment] ~ dnorm(0, 5),
+    sigma ~ dhalfnorm(0, 5)
+  ),
+  data = jetlag,
+  sample_prior = TRUE
+)
 
+pp_dist <- extract.samples(PP)$b |> 
+  as.data.frame() |> 
+  rename(control = V1,
+         eyes = V2,
+         knee = V3)
+
+pp_dist |> 
+  pivot_longer(cols = everything(),
+               names_to = "Treatment", values_to = "Shift") |> 
+  ggplot(aes(Shift, fill = Treatment)) +
+  geom_histogram(bins = 30) +
+  scale_fill_manual(values = c("tomato", "steelblue", "pink")) +
+  facet_grid(Treatment ~ .) +
+  cowplot::theme_cowplot() +
+  labs(x = "Shift", y = "Count") +
+  theme(legend.position = "none")
 ```
 
 ### Final model specification
 
+```{=tex}
+\begin{align}
+  \mathrm{Shift} & \sim Normal(\mu, \sigma) \\
+  \mu & = b[\mathrm{Treatment}] \\
+  b[\mathrm{Treatment}] & \sim Normal(0, 5) \\
+  \sigma & \sim HalfNormal(0, 5) \\
+\end{align}
+```
+
 ### Sampling
 
 ```{r}
-
+fm <- ulam(
+    alist(
+    Shift ~ dnorm(mu, sigma),
+    mu <- b[Treatment],
+    b[Treatment] ~ dnorm(0, 5),
+    sigma ~ dhalfnorm(0, 5)
+  ),
+  data = jetlag,
+  sample_prior = FALSE,
+  chain = 4,
+  iter = 5e3,
+  refresh = 1e3
+)
 ```
 
 ### Diagnostics
 
 ```{r}
+summary(fm)
 
+traceplot(fm)
+
+trankplot(fm)
 ```
 
-```{r}
-
-```
 
 ### Posterior predictive simulation
 
 ```{r}
+pp_dist$PP <- "Prior" 
+
+pp_dist2 <- extract.samples(PP)$b |> 
+  as.data.frame() |> 
+  rename(control = V1,
+         eyes = V2,
+         knee = V3)
+
+pp_dist2$PP <- "Posterior"
+
+pp_dist3 <- bind_rows(pp_dist, pp_dist2)
+
+pp_dist_long <- pp_dist3 |> 
+  pivot_longer(cols = -PP, names_to = "Treatment", values_to = "Shift")
+
+pp_dist_long$PP <- factor(pp_dist_long$PP, levels = c("Prior", "Posterior"))
+
+### still only getting one line
+ggplot(data = pp_dist_long, aes(Shift, color = "Treatment", linetype = PP)) +
+  geom_density() +
+  facet_grid(Treatment ~ .) +
+  cowplot::theme_cowplot() +
+  labs(x = "Shift", y = "Count") +
+  theme(legend.position = "none") +
+  scale_linetype_manual(values = c("Posterior" = "solid", "Prior" = "dotted"))
 
 ```
 
 ### Summarizing the posterior
 
 ```{r}
+lizard$PP <- "Observed"
+
+pp_dist2_long <- pp_dist2 |> 
+  pivot_longer(cols = -PP, names_to = "Treatment", values_to = "Shift")
+
+jetlag |> 
+  group_by(Treatment) |> 
+  summarise(mean = mean(jetlag$Shift))
+
+pp_dist2_long |> 
+  group_by(Treatment) |> 
+  summarise(mean = mean(pp_dist2_long$Shift))
+
+knee_control <- pp_dist2 |> 
+  mutate(diff = knee - control)
+
+ggplot()+
+  geom_density(data = knee_control, aes(diff))
+
+HPDI(knee_control$diff, prob = 0.89)
+
+eye_control <- pp_dist2 |> 
+  mutate(diff = eyes - control)
+
+ggplot()+
+  geom_density(data = eye_control, aes(diff))
+
+HPDI(eye_control$diff, prob = 0.89)
+
 
 ```
