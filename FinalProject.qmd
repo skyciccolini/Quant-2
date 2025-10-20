@@ -1,0 +1,229 @@
+---
+title: "Final Project"
+author:
+  - Skylar Ciccolini
+format: 
+  html:
+    embed-resources: true
+---
+
+## Instructions
+
+For the final project for Bayesian Inference 1, you will analyze a dataset and write the methods and results sections as you would for a manuscript. Ideally, you would use a dataset you are working on analyzing and intending to publish but you can use any dataset if you don't have one like that right now. 
+
+Your data and analysis doesn't have to be overly complicated, and if your actual data would demand a more complex model than we have used (e.g., multilevel or non-linear), feel free to simplify the data for the purposes of analysis.
+
+You should restrict your writing to the methods about the analysis you have done. You do not need to include the other parts of the methods describing the experiment, etc. Just include enough to know what questions you are answering and/or what hypotheses you are testing. The same is true for your results section. Simply write the sections describing the results of the analyses you do here. The entire thing should be written in this `.qmd` file, formatting the analysis, plots, etc. here. 
+
+Things to include:
+
+- Model statement(s)
+- Prior predictive checks
+- Sampling information and diagnostics
+- Posterior predictive check
+- Hypothesis tests, model comparison, and/or model averaging
+- Relevant figures
+    - Although you might not include all these figures in a manuscript, they could very easily go into supplemental information.
+
+We will take some time to discuss possible datasets with each of you during our week 3 check in meeting. 
+
+
+## Set up
+
+```{r}
+library(pacman)
+p_load(tidyverse, rethinking)
+
+# read in data
+tick <- read_csv("raw_data/BOI_PF_adult.csv")
+
+glimpse(tick)
+
+# initial data cleaning
+tick_sub <- tick |> 
+  select(MONTH, pathogen_positivity)
+
+
+ggplot(data = tick_sub) +
+  geom_density(aes(pathogen_positivity)) +
+  facet_grid(MONTH~.)
+
+tick_sub$MONTH <- as.integer(factor(tick_sub$MONTH))
+
+```
+
+
+## 1.  Model specification
+
+```{=tex}
+\begin{align}
+  \mathrm{Pathogen Positivity} & \sim Bernouli(\mu, \sigma) \\ ### change this
+  \mu & = b[\mathrm{Month}] \\
+\end{align}
+```
+
+
+
+## 2.  Prior specification and checks
+
+```{r}
+PP <- ulam(
+  alist(
+    pathogen_positivity ~ dnorm(mu, sigma), ### probs need to change dist
+    mu <- b[Month],
+    b[Month] ~ dnorm(0, 5),
+    sigma ~ dhalfnorm(0, 5)
+  ),
+  data = tick_sub,
+  sample_prior = TRUE
+)
+
+pp_dist <- extract.samples(PP)$b |> 
+  as.data.frame() |> 
+  rename(August = V1,
+         July = V2,
+         June = V3,
+         August = V4)
+
+pp_dist |> 
+  pivot_longer(cols = everything(),
+               names_to = "MONTH", values_to = "pathogen_positivity") |> 
+  ggplot(aes(pathogen_positivity, fill = MONTH)) +
+  geom_histogram(bins = 30) +
+  scale_fill_manual(values = c("tomato", "steelblue", "pink", "purple")) +
+  facet_grid(MONTH ~ .) +
+  cowplot::theme_cowplot() +
+  labs(x = "Pathogen Positivity", y = "Count") +
+  theme(legend.position = "none")
+```
+
+
+### Final Model
+
+```{=tex}
+\begin{align}
+  \mathrm{Pathogen Positivity} & \sim Normal(\mu, \sigma) \\ ### change this
+  \mu & = b[\mathrm{Month}] \\
+  b[\mathrm{Month}] & \sim Normal(0, 5) \\
+  \sigma & \sim HalfNormal(0, 5) \\
+\end{align}
+```
+
+
+## 3.  Sampling
+
+```{r}
+fm <- ulam(
+    alist(
+    pathogen_positivity ~ dnorm(mu, sigma), ### update model
+    mu <- b[MONTH],
+    b[MONTH] ~ dnorm(0, 5),
+    sigma ~ dhalfnorm(0, 5)
+  ),
+  data = tick_sub,
+  sample_prior = FALSE,
+  chain = 4,
+  iter = 5e3,
+  refresh = 1e3
+)
+```
+
+
+## 4.  Diagnostics
+
+```{r}
+summary(fm)
+
+traceplot(fm)
+
+trankplot(fm)
+```
+
+### AT THIS POINT YOU SHOULD CHECK THE KEY FOR PS 3
+
+
+## 5.  Posterior predictive simulation
+
+```{r}
+pp_dist$PP <- "Prior" 
+
+pp_dist2 <- extract.samples(PP)$b |> 
+  as.data.frame() |> 
+  rename(August = V1,
+         July = V2,
+         June = V3,
+         August = V4)
+
+pp_dist2$PP <- "Posterior"
+
+pp_dist3 <- bind_rows(pp_dist, pp_dist2)
+
+pp_dist_long <- pp_dist3 |> 
+  pivot_longer(cols = -PP, names_to = "MONTH", values_to = "Pathogen_Positivity")
+
+pp_dist_long$PP <- factor(pp_dist_long$PP, levels = c("Prior", "Posterior"))
+
+ggplot(data = pp_dist_long, aes(pathogen_positivity, color = "Month", linetype = PP)) +
+  geom_density() +
+  facet_grid(MONTH ~ .) +
+  cowplot::theme_cowplot() +
+  labs(x = "pathogen_positivity", y = "Count") +
+  theme(legend.position = "none") +
+  scale_linetype_manual(values = c("Posterior" = "solid", "Prior" = "dotted"))
+
+```
+
+
+## 6.  Summarizing the posterior
+
+```{r}
+tick_sub$PP <- "Observed"
+
+pp_dist2_long <- pp_dist2 |> 
+  pivot_longer(cols = -PP, names_to = "MONTH", values_to = "pathogen_positivity")
+
+tick_sub |> 
+  group_by(MONTH) |> 
+  summarise(mean = mean(tick_sub$pathogen_positivity))
+
+pp_dist2_long |> 
+  group_by(MONTH) |> 
+  summarise(mean = mean(pp_dist2_long$pathogen_positivity))
+
+
+
+```
+
+
+## Hypothesis Testing
+
+Hypothesis: July will have a higher number of positives than the other months
+
+
+## Relevant Figures
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
