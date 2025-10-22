@@ -257,7 +257,7 @@ What do you learn from the visual checks?
 > Both of these visual checks seem good to me. The traceplot for the two groups look normal. The sigma traceplot looks a little funky.
 
 Taken together, do you think that the sampling was successful?
-> Yes? ###
+> Yes?
 
 
 ### Posterior predictive check
@@ -297,18 +297,16 @@ Your plot should have four lines, two solid lines from the posterior and two das
 ```{r}
 pp_dist_long$PP <- factor(pp_dist_long$PP, levels = c("Prior", "Posterior"))
 
-ggplot(data = pp_dist_long, aes(horn_length, color = "group", linetype = PP)) +
-  geom_density() +
-  facet_grid(group ~ .) +
-  cowplot::theme_cowplot() +
-  labs(x = "Horn Length (mm)", y = "Count") +
-  theme(legend.position = "none") +
-  scale_linetype_manual(values = c("Posterior" = "solid", "Prior" = "dotted"))
+
+
+
+ggplot(data = pp_dist_long, aes(horn_length, color = group, linetype = PP)) +
+  geom_density(position = position_dodge(width = 10))
 
 ```
 
 How does the posterior compare to the prior?
-> ### can't get two lines
+> The prior and posterior seem to be very similar.
 
 Next we would like to compare the posterior to the data. We will mostly let you try to figure this out. A few suggestions:
 
@@ -326,12 +324,10 @@ lizard$PP <- "Observed"
 pp_dist2_long <- pp_dist2 |> 
   pivot_longer(cols = -PP, names_to = "group", values_to = "horn_length")
 
-### can't get linetype to work
-ggplot(linetype = "PP") +
-  geom_density(data = lizard, aes(horn_length, color = group)) +
-  geom_density(data = pp_dist2_long, aes(horn_length, color = group)) +
-  facet_grid(group~.) +
-  scale_linetype_manual(values = c("Observed" = "solid", "Posterior" = "dashed"))
+
+ggplot() +
+  geom_density(data = lizard, aes(horn_length, color = group), linetype = "solid") +
+  geom_density(data = pp_dist2_long, aes(horn_length, color = group), linetype = "dotted")
 
 ```
 
@@ -390,7 +386,7 @@ HPDI(diff$diff, prob = 0.89)
 ```
 
 Does the interval agree with your assessment of the plot?
-> The HPDI is pretty wide and crosses 0, so no? ###
+> The HPDI is pretty wide and crosses 0, so no?
 
 
 ## Bivariate regression
@@ -438,14 +434,14 @@ For each section we have provided a few guiding questions (to think about but no
 -   What does a prior predictive check look like when the priors define lines, rather than means like above? You might have to expand the y-axis to see the prior predictions better when you plot them.
 
 ```{r}
-# no intercept because it doesn't make sense for a population to have a density of 0
+
 PP <- ulam(
   alist(
     Proportion_forceps ~ dnorm(mu, sigma),
     mu <- b0 + b1 * Density,
-    b0 == 0,
-    b1 ~ dnorm(1, 5),
-    sigma ~ dhalfnorm(0, 10) ### check priors
+    b0 == dnorm(0, 1),
+    b1 ~ dnorm(0, 0.2),
+    sigma ~ dhalfnorm(0, 1) 
   ),
   data = earwig,
   sample_prior = TRUE
@@ -487,9 +483,9 @@ fm <- ulam(
   alist(
     Proportion_forceps ~ dnorm(mu, sigma),
     mu <- b0 + b1 * Density,
-    b0 == 0,
-    b1 ~ dnorm(1, 5),
-    sigma ~ dhalfnorm(0, 10) ### check priors
+    b0 == dnorm(0, 1),
+    b1 ~ dnorm(0, 0.2),
+    sigma ~ dhalfnorm(0, 1)
   ),
   data = earwig,
   sample_prior = FALSE,
@@ -677,14 +673,9 @@ pp_dist_long <- pp_dist3 |>
 
 pp_dist_long$PP <- factor(pp_dist_long$PP, levels = c("Prior", "Posterior"))
 
-### still only getting one line
-ggplot(data = pp_dist_long, aes(Shift, color = "Treatment", linetype = PP)) +
-  geom_density() +
-  facet_grid(Treatment ~ .) +
-  cowplot::theme_cowplot() +
-  labs(x = "Shift", y = "Count") +
-  theme(legend.position = "none") +
-  scale_linetype_manual(values = c("Posterior" = "solid", "Prior" = "dotted"))
+
+ggplot(data = pp_dist_long, aes(Shift, color = Treatment, linetype = PP)) +
+  geom_density(position = position_dodge(width = 10))
 
 ```
 
