@@ -24,6 +24,7 @@ library(distributional)
 library(modelr)
 library(bayesplot)
 library(rethinking)
+library(readxl)
 
 options(brms.backend = "cmdstan")
 theme_set(theme_cowplot(font_size = 10))
@@ -644,12 +645,26 @@ Load the data in `Milk.xlsx`, select the columns `kcal.per.g`, `perc.fat`, `perc
 There are some missing values in the data, so drop any rows with NA. These are comparative data for different species of primates, but we will ignore those relationships for this analysis.
 
 ```{r}
+milk <- read_xlsx("raw_data/Milk.xlsx") |> 
+  select(kcal.per.g, perc.fat, perc.lactose) |> 
+  rename(Milk_energy = kcal.per.g,
+         Fat = perc.fat,
+         Lactose = perc.lactose) |> 
+  drop_na()
+
 
 ```
 
 Make two plots, one where energy is predicted by fat and the other by lactose.
 
 ```{r}
+
+ggplot(milk, aes(Fat, Milk_energy)) +
+  geom_point()
+
+ggplot(milk, aes(Lactose, Milk_energy)) +
+  geom_point()
+
 
 ```
 
@@ -658,7 +673,7 @@ You will see that they vary inversely. As fat goes up, lactose goes down. Becaus
 If you check the correlation between fat and lactose, you will see it's large ($r \approx$ -0.94). In a frequentist regression, you might be worried about multicollinearity in this case.
 
 ```{r}
-
+cor(milk)
 ```
 
 ### Model specification
@@ -672,27 +687,87 @@ If you check the correlation between fat and lactose, you will see it's large ($
 ### Prior specification and prior predictive check
 
 ```{r}
+### check this code chunk because its probably wrong
+PP <- ulam(
+  alist(
+    Milk_energy ~ dnorm(mu, sigma),
+    mu <- b0 + b1 * Fat + b2 * Lactose,
+    b0 ~ dnorm(0, 0.2),
+    b1 ~ dnorm(0, 0.2),
+    b2 ~ dnorm(0, 0.2),
+    sigma ~ dhalfnorm(0, 1)
+  ),
+  data = milk,
+  sample_prior = TRUE
+)
 
+pp_dist <- extract.samples(PP) |> 
+  as.data.frame() |> 
+  slice_sample(n = 100)
+
+ggplot() +
+  geom_point(data = milk,
+             aes(Fat, Milk_engery, color = factor(Lactose)),
+             size = 4) +
+    # scale_colour_manual(values = c("red", "blue"),
+    #                     name = "Lactose",
+    #                     labels = c("Active", "Ambush")) +
+  geom_abline(data = pp_dist, aes(slope = b1, intercept = b0),
+              color = "red", alpha = 0.25) +
+  geom_abline(data = pp_dist, aes(slope = b2, intercept = b0),
+              color = "blue", alpha = 0.25)
 ```
 
 ### Final model specification
 
 ```{=tex}
-\begin{align}
+\begin{align} ###update
   \mathrm{Milk\_energy} & \sim Normal(\mu, \sigma) \\
   \mu & = b0 + b1 \mathrm{Fat} + b2 \mathrm{Lactose} \\
+  b0 & \sim Normal(0, 0.2)\\
+  b1 & \sim Normal(0, 0.2)\\
+  b2 & \sim Normal(0, 0.2)\\
+  \sigma & \sim HalfNormal(0, 1)\\\
 \end{align}
 ```
 ### Sampling
 
 ```{r}
+fm <- ulam(
+  alist(
+    Milk_energy ~ dnorm(mu, sigma),
+    mu <- b0 + b1 * Fat + b2 * Lactose,
+    b0 ~ dnorm(0, 0.2),
+    b1 ~ dnorm(0, 0.2),
+    b2 ~ dnorm(0, 0.2),
+    sigma ~ dhalfnorm(0, 1)
+  ),
+  data = milk,
+  sample_prior = FALSE,
+  chains = 4,
+  iter = 5e3,
+  refresh = 1e3
+)
 
+# make it brms
+priors <- c(prior(normal(0, 0.2), class = b),
+            prior(normal(0, 0.2), class = b, coef = Fat),
+            prior(normal(0, 0.2), class = b, coef = Lactose),
+            prior(normal(0, 1), class = sigma)
+            )
+
+fm_brm <- brm(Milk_energy ~ Fat + Lactose, ### think i did this wrong
+              data = milk,
+              prior = priors,
+              iter = 5e3)
 ```
 
 ### Diagnostics
 
 ```{r}
-
+summary(fm)
+traceplot(fm)
+trankplot(fm)
 ```
 
 ### Posterior predictive simulation
@@ -700,7 +775,7 @@ If you check the correlation between fat and lactose, you will see it's large ($
 Use `pp_check()` to make a density plot of the observed data superimposed on draws from the posterior.
 
 ```{r}
-
+bayesplot::pp_check(fm, fun = "dens_overlay", yrep[1:50, ]) ### cant get this to work
 ```
 
 To visualize the effect of the two continuous predictors, we'll have to get creative. Here are the steps:
@@ -710,6 +785,15 @@ To visualize the effect of the two continuous predictors, we'll have to get crea
 -   Calculate the median and 89% HDI intervals using `mutate()` like we did in the lecture slides.
 
 ```{r}
+new_data <- crossing(
+  Fat = seq(3, 56, length.out = 200),
+  Lactose = c(30, 50, 70)
+)
+new_data
+
+
+
+p_pred <- posterior_epred(fm_brms, newdata = new_data) ### check this
 
 ```
 
