@@ -23,7 +23,6 @@ library(tidybayes)
 library(distributional)
 library(modelr)
 library(bayesplot)
-library(rethinking)
 library(readxl)
 
 options(brms.backend = "cmdstan")
@@ -334,6 +333,10 @@ ggplot() +
   labs(y = "Survival") +
   theme(legend.position = "none")
 
+# log transform survival
+heart <- heart |> 
+  mutate(logSurvival = log(Survival))
+
 ```
 
 ### Model specification
@@ -347,34 +350,32 @@ ggplot() +
 ### Prior specification and prior predictive check
 
 ```{r}
-PP <- ulam(
-  alist(
-    Survival ~ dnorm(mu, sigma),
-    mu <- b[Mismatch],
-    b[Mismatch] ~ dnorm(600, 5),
-    sigma ~ dhalfnorm(5, 5)
-  ),
-  data = heart,
-  sample_prior = TRUE
+priors <- c(prior(normal(4, 2), class = b, lb = 0),
+            prior(normal(0, 3), class = sigma))
+
+PP <- brm(logSurvival ~ Mismatch - 1,
+          data = heart, 
+          prior = priors,
+          sample_prior = "only",
+          seed = 213546,
+          iter = 5e3,
+          chains = 4,
+          cores = 4
+  
 )
 
-pp_dist <- extract.samples(PP)$b |> 
-  as.data.frame() |> 
-  rename(low = V1,
-         medium = V2,
-         high = V3)
 
-pp_dist |> 
-  pivot_longer(cols = everything(),
-               names_to = "Mismatch",
-               values_to = "Survival") |> 
-  ggplot(aes(Survival, fill = Mismatch)) +
-  geom_histogram(bins = 30) +
-  scale_fill_manual(values = c("tomato", "steelblue", "darkorchid")) +
-  facet_grid(Mismatch ~ .) +
-  cowplot::theme_cowplot() +
-  labs(x = "Survival", y = "Count") +
-  theme(legend.position = "none")
+get_prior(logSurvival ~ Mismatch - 1, data = heart)
+
+pp_check(
+  PP,
+  type = "stat_grouped",
+  group = "Mismatch",
+  stat = "mean",
+  ndraws = 500,
+  binwidth = 0.5
+)
+
 ```
 
 ### Final model specification
@@ -383,68 +384,91 @@ pp_dist |>
 \begin{align}
   \mathrm{logSurvival} & \sim Normal(\mu, \sigma) \\
   \mu & = b[\mathrm{Mismatch}] \\
-  b[\mathrm{Mismatch}] & \sim Normal(600, 5) \\
-  \sigma &\sim HalfNormal(5, 5)\\
+  b[\mathrm{Mismatch}] & \sim Normal(4, 2) \\
+  \sigma & \sim Normal (0, 3) \\
 \end{align}
 ```
 ### Sampling
 
 ```{r}
-fm <- ulam(
-  alist(
-    Survival ~ dnorm(mu, sigma),
-    mu <- b[Mismatch],
-    b[Mismatch] ~ dnorm(600, 5),
-    sigma ~ dhalfnorm(5, 5)
-  ),
-  data = heart,
-  sample_prior = FALSE,
-  chains = 4,
-  iter = 5e3,
-  refresh = 0
+fm <- brm(logSurvival ~ Mismatch - 1,
+          data = heart, 
+          prior = priors,
+          seed = 213546,
+          iter = 5e3,
+          chains = 4,
+          cores = 4
+  
 )
 ```
 
 ### Diagnostics
 
 ```{r}
-summary(fm)
+powerscale_plot_dens(
+  powerscale_sequence(fm),
+  quantity = c("mean", "sd"),
+  variable = "b_MismatchHigh")
+
+powerscale_plot_dens(
+  powerscale_sequence(fm),
+  quantity = c("mean", "sd"),
+  variable = "b_MismatchLow")
+
+powerscale_plot_dens(
+  powerscale_sequence(fm),
+  quantity = c("mean", "sd"),
+  variable = "b_MismatchMedium")
+
+powerscale_plot_dens(
+  powerscale_sequence(fm),
+  quantity = c("mean", "sd"),
+  variable = "sigma")
 ```
 
 ```{r}
-traceplot(fm)
-trankplot(fm)
+powerscale_plot_quantities(
+  powerscale_sequence(fm),
+  quantity = c("mean", "sd"),
+  variable = c("b_MismatchHigh", "b_MismatchLow", "b_MismatchMedium", "sigma"))
+```
+
+```{r}
+powerscale_sensitivity(fm)
 ```
 
 
 ### Posterior predictive simulation
 
 ```{r}
-post <- extract.samples(fm)$b |> 
-  as.data.frame() |> 
-  rename(Low = V1,
-         Medium = V2,
-         High = V3)
-
-post |> 
-  pivot_longer(cols = everything(),
-               names_to = "Mismatch",
-               values_to = "Survival") |> 
-  ggplot(aes(Survival, color = Mismatch)) +
-  geom_density(linewidth = 0.5) +
-  geom_point(data = heart, aes(x = Survival, y = 0, color = Mismatch),
-             size = 3) +
-  scale_color_manual(values = c("tomato", "steelblue", "darkorchid")) +
-  facet_grid(Mismatch ~ .) +
-  cowplot::theme_cowplot() +
-  labs(x = "Survival", y = "Count") +
-  theme(legend.position = "none")
+pp_check(
+  fm,
+  type = "stat_grouped",
+  group = "Mismatch",
+  stat = "mean",
+  ndraws = 500,
+  binwidth = 0.1
+)
 ```
 
 ### Summarizing the posterior
 
 ```{r}
-###
+fm |> tidy_draws() |> summarise_draws()
+
+
+fm |>
+  spread_rvars(b_MismatchHigh, b_MismatchLow, b_MismatchMedium,sigma)
+
+fm |>
+  spread_rvars(b_MismatchHigh, b_MismatchLow, b_MismatchMedium,sigma) |>
+  median_hdi(.width = 0.89)
+
+fm |>
+  spread_rvars(b_MismatchHigh, b_MismatchLow, b_MismatchMedium,sigma) |>
+  pivot_longer(cols = everything()) |>
+  ggplot(aes(y = name, dist = value)) +
+  stat_pointinterval(.width = c(0.89, 0.97))
 
 
 
@@ -453,9 +477,11 @@ post |>
 Test the hypothesis that Medium and High mismatch differ from Low using contrasts.
 
 ```{r}
+post <- as_draws_df(fm)
+
 post_contrast <- post |> 
-  mutate(`Medium vs. Low` = Medium - Low,
-         `High vs. Low` = Medium - Low,
+  mutate(`Medium vs. Low` = b_MismatchMedium - b_MismatchLow,
+         `High vs. Low` = b_MismatchHigh - b_MismatchLow,
          .keep = "none")
 
 post_contrast |> 
@@ -465,7 +491,6 @@ post_contrast |>
   scale_color_manual(values = c("steelblue", "darkorchid")) +
   geom_density(linewidth = 1.5)
 
-apply(post_contrast, MARGIN = 2, FUN = HPDI) ### this seems wrong to me, why HPDI exactly the same?
 ```
 
 ## 2x2 factorial design
@@ -480,13 +505,13 @@ The file `Bird_Plasma.xlsx` contains factorial data on blood plasma calcium conc
 #| message: false
 
 bird <- readxl::read_xlsx("raw_data/Bird_Plasma.xlsx") |> 
-  mutate(Treatment = factor(Treatment,
-                           levels = c("None", "Hormone")),
-         Sex = factor(Sex))
+  mutate(Treatment = as.factor(factor(Treatment,
+                           levels = c("None", "Hormone"))),
+         Sex = as.factor(Sex))
 
 ggplot(bird, aes(x = Sex, y = Calcium, group = Treatment, color = Treatment)) +
   geom_point() +
-  geom_line() ### only one line, not multiple
+  geom_line() 
 
 ```
 
@@ -518,35 +543,31 @@ One additional advantage of this approach is that you only need to specify a sin
 There are only 5 points per group, so the prior is potentially very powerful relative to the likelihood.
 
 ```{r}
-PP <- ulam(
-  alist(
-    Calcium ~ dnorm(mu, sigma),
-    mu <- b[Sex_Trt],
-    b[Sex_Trt] ~ dnorm(20, 5),
-    sigma ~ dhalfnorm(2, 2)
-  ),
-  data = bird,
-  sample_prior = TRUE
-)
+priors <- c(prior(normal(20,5), class = b, lb = 0),
+                 prior(normal(2, 2), class = sigma))
 
-pp_dist <- extract.samples(PP)$b |> 
-  as.data.frame() |> 
-  rename(Female_Hormone = V1,
-         Female_None = V2,
-         Male_Hormone = V3,
-         Male_None = V4)
+PP <- brm(Calcium~ Sex_Trt -1,
+         data = bird,
+         prior = priors,
+         sample_prior = "only",
+         seed = 12345,
+         iter = 5e3,
+         chains = 4,
+         core = 4)
 
-pp_dist |> 
-  pivot_longer(cols = everything(),
-               names_to = "Treatment",
-               values_to = "Calcium") |> 
-  ggplot(aes(Calcium, fill = Treatment)) +
-  geom_histogram(bins = 30) +
-  scale_fill_manual(values = c("tomato", "steelblue", "darkorchid", "forestgreen")) +
-  facet_grid(Treatment ~ .) +
-  cowplot::theme_cowplot() +
-  labs(x = "Calcium", y = "Count") +
-  theme(legend.position = "none")
+
+get_prior(Calcium ~ Sex_Trt -1, data = bird)
+
+
+
+pp_check(
+  PP,
+  type = "stat_grouped",
+  group = "Sex_Trt",
+  stat = "mean",
+  ndraws = 500,
+  binwidth = 0.5)
+
 ```
 
 ### Final model specification
@@ -562,53 +583,70 @@ pp_dist |>
 ### Sampling
 
 ```{r}
-fm <- ulam(
-  alist(
-    Calcium ~ dnorm(mu, sigma),
-    mu <- b[Sex_Trt],
-    b[Sex_Trt] ~ dnorm(20, 5),
-    sigma ~ dhalfnorm(2, 2)
-  ),
-  data = bird,
-  sample_prior = FALSE,
-  chains = 4,
-  iter = 5e3,
-  refresh = 0
-)
+fm <- brm(Calcium~ Sex_Trt -1,
+         data = bird,
+         prior = priors,
+         seed = 12345,
+         iter = 5e3,
+         chains = 4,
+         core = 4)
 ```
 
 ### Diagnostics
 
 ```{r}
-summary(fm)
+powerscale_plot_dens(
+  powerscale_sequence(fm),
+  quantity = c("mean", "sd"),
+  variable = "b_Sex_TrtFemale_Hormone")
+
+powerscale_plot_dens(
+  powerscale_sequence(fm),
+  quantity = c("mean", "sd"),
+  variable = "b_Sex_TrtFemale_None")
+
+powerscale_plot_dens(
+  powerscale_sequence(fm),
+  quantity = c("mean", "sd"),
+  variable = "b_Sex_TrtMale_Hormone")
+
+powerscale_plot_dens(
+  powerscale_sequence(fm),
+  quantity = c("mean", "sd"),
+  variable = "b_Sex_TrtMale_None")
+
+powerscale_plot_dens(
+  powerscale_sequence(fm),
+  quantity = c("mean", "sd"),
+  variable = "sigma")
+
+
+powerscale_plot_quantities(
+  powerscale_sequence(fm),
+  quantity = c("mean", "sd"),
+  variable = c("b_Sex_TrtFemale_Hormone", "b_Sex_TrtFemale_None", "b_Sex_TrtMale_Hormone", "b_Sex_TrtMale_None", "sigma"))
+
+
+powerscale_sensitivity(fm)
 ```
 
 ```{r}
-traceplot(fm)
-trankplot(fm)
+mcmc_combo(fm)
+mcmc_trace(fm)
 ```
+
 
 ### Posterior predictive simulation
 
 ```{r}
-post <- extract.samples(PP)$b |> 
-  as.data.frame() |> 
-  rename(Female_Hormone = V1,
-         Female_None = V2,
-         Male_Hormone = V3,
-         Male_None = V4)
+pp_check(
+  fm,
+  type = "stat_grouped",
+  group = "Sex_Trt",
+  stat = "mean",
+  ndraws = 500,
+  binwidth = 0.1)
 
-post |> 
-  pivot_longer(cols = everything(),
-               names_to = "Treatment",
-               values_to = "Calcium") |> 
-  ggplot(aes(Calcium, fill = Treatment)) +
-  geom_histogram(bins = 30) +
-  scale_fill_manual(values = c("tomato", "steelblue", "darkorchid", "forestgreen")) +
-  facet_grid(Treatment ~ .) +
-  cowplot::theme_cowplot() +
-  labs(x = "Calcium", y = "Count") +
-  theme(legend.position = "none")
 ```
 
 ### Summarizing the posterior
@@ -616,21 +654,29 @@ post |>
 Compare the means of Hormone vs. Control separately by sex.
 
 ```{r}
+post <- fm |> 
+  spread_rvars(
+    b_Sex_TrtFemale_Hormone,
+    b_Sex_TrtFemale_None,
+    b_Sex_TrtMale_Hormone,
+    b_Sex_TrtMale_None
+  )
+
 post_contrast <- post |> 
   mutate(`Female Hormone vs. Control` = 
-           Female_Hormone - Female_None,
+           b_Sex_TrtFemale_Hormone - b_Sex_TrtFemale_None,
          `Male Hormone vs. Control` = 
-           Male_Hormone - Male_None,
+           b_Sex_TrtMale_Hormone - b_Sex_TrtMale_None,
          .keep = "none")
 
-post_contrast |> 
-  pivot_longer(cols = everything(),
-               names_to = "Contrast", values_to = "Difference") |> 
-  ggplot(aes(Difference, color = Contrast)) +
-  scale_color_manual(values = c("steelblue", "darkorchid")) +
-  geom_density(linewidth = 1.5)
+post_contrast |>
+  pivot_longer(cols = everything()) |>
+  ggplot(aes(xdist = value, fill = name)) +
+  stat_slab(alpha = 0.5) +
+  scale_fill_manual(values = c("red", "blue"), name = "Contrast") +
+  labs(x = "Difference (Hormone - Control)", y = "Density")
 
-apply(post_contrast, MARGIN = 2, FUN = HPDI)
+median_hdi(post, .width = 0.89)
 
 ```
 
@@ -687,35 +733,25 @@ cor(milk)
 ### Prior specification and prior predictive check
 
 ```{r}
-### check this code chunk because its probably wrong
-PP <- ulam(
-  alist(
-    Milk_energy ~ dnorm(mu, sigma),
-    mu <- b0 + b1 * Fat + b2 * Lactose,
-    b0 ~ dnorm(0, 0.2),
-    b1 ~ dnorm(0, 0.2),
-    b2 ~ dnorm(0, 0.2),
-    sigma ~ dhalfnorm(0, 1)
-  ),
-  data = milk,
-  sample_prior = TRUE
-)
+priors <- c(prior(normal(0.2, 0.05), class = b),
+            prior(normal(0, 1), class = sigma))
 
-pp_dist <- extract.samples(PP) |> 
-  as.data.frame() |> 
-  slice_sample(n = 100)
+PP <- brm(Milk_energy~ Fat + Lactose,
+         data = milk,
+         prior = priors,
+         sample_prior = "only",
+         seed = 12345,
+         iter = 5e3,
+         chains = 4,
+         core = 4)
 
-ggplot() +
-  geom_point(data = milk,
-             aes(Fat, Milk_engery, color = factor(Lactose)),
-             size = 4) +
-    # scale_colour_manual(values = c("red", "blue"),
-    #                     name = "Lactose",
-    #                     labels = c("Active", "Ambush")) +
-  geom_abline(data = pp_dist, aes(slope = b1, intercept = b0),
-              color = "red", alpha = 0.25) +
-  geom_abline(data = pp_dist, aes(slope = b2, intercept = b0),
-              color = "blue", alpha = 0.25)
+get_prior(Milk_energy ~ Fat + Lactose, data = milk)
+
+
+pp_check(
+  PP,
+  type = "dens_overlay",
+  ndraws = 500)
 ```
 
 ### Final model specification
@@ -724,58 +760,69 @@ ggplot() +
 \begin{align} ###update
   \mathrm{Milk\_energy} & \sim Normal(\mu, \sigma) \\
   \mu & = b0 + b1 \mathrm{Fat} + b2 \mathrm{Lactose} \\
-  b0 & \sim Normal(0, 0.2)\\
-  b1 & \sim Normal(0, 0.2)\\
-  b2 & \sim Normal(0, 0.2)\\
   \sigma & \sim HalfNormal(0, 1)\\\
 \end{align}
 ```
 ### Sampling
 
 ```{r}
-fm <- ulam(
-  alist(
-    Milk_energy ~ dnorm(mu, sigma),
-    mu <- b0 + b1 * Fat + b2 * Lactose,
-    b0 ~ dnorm(0, 0.2),
-    b1 ~ dnorm(0, 0.2),
-    b2 ~ dnorm(0, 0.2),
-    sigma ~ dhalfnorm(0, 1)
-  ),
-  data = milk,
-  sample_prior = FALSE,
-  chains = 4,
-  iter = 5e3,
-  refresh = 1e3
-)
-
-# make it brms
-priors <- c(prior(normal(0, 0.2), class = b),
-            prior(normal(0, 0.2), class = b, coef = Fat),
-            prior(normal(0, 0.2), class = b, coef = Lactose),
-            prior(normal(0, 1), class = sigma)
-            )
-
-fm_brm <- brm(Milk_energy ~ Fat + Lactose, ### think i did this wrong
-              data = milk,
-              prior = priors,
-              iter = 5e3)
+fm <- brm(Milk_energy~ Fat + Lactose,
+         data = milk,
+         prior = priors,
+         seed = 12345,
+         iter = 5e3,
+         chains = 4,
+         core = 4)
 ```
 
 ### Diagnostics
-
 ```{r}
-summary(fm)
-traceplot(fm)
-trankplot(fm)
+powerscale_plot_dens(
+  powerscale_sequence(fm),
+  quantity = c("mean", "sd"),
+  variable = "b_Fat")
+
+powerscale_plot_dens(
+  powerscale_sequence(fm),
+  quantity = c("mean", "sd"),
+  variable = "b_Lactose")
+
+powerscale_plot_dens(
+  powerscale_sequence(fm),
+  quantity = c("mean", "sd"),
+  variable = "b_Intercept")
+
+powerscale_plot_dens(
+  powerscale_sequence(fm),
+  quantity = c("mean", "sd"),
+  variable = "sigma")
+
+
+
+powerscale_plot_quantities(
+  powerscale_sequence(fm),
+  quantity = c("mean", "sd"),
+  variable = c("b_Fat", "b_Lactose", "b_Intercept", "sigma"))
+
+
+powerscale_sensitivity(fm)
+
+
+
+mcmc_combo(fm)
+mcmc_trace(fm)
 ```
+
 
 ### Posterior predictive simulation
 
 Use `pp_check()` to make a density plot of the observed data superimposed on draws from the posterior.
 
 ```{r}
-bayesplot::pp_check(fm, fun = "dens_overlay", yrep[1:50, ]) ### cant get this to work
+pp_check(
+  fm,
+  type = "dens_overlay",
+  ndraws = 500)
 ```
 
 To visualize the effect of the two continuous predictors, we'll have to get creative. Here are the steps:
@@ -791,9 +838,14 @@ new_data <- crossing(
 )
 new_data
 
+p_pred <- posterior_epred(fm, newdata = new_data) 
 
-
-p_pred <- posterior_epred(fm_brms, newdata = new_data) ### check this
+new_data <- new_data |>
+  mutate(
+    Q50 = apply(p_pred, MARGIN = 2, FUN = quantile, prob = 0.5),
+    Q5.5 = apply(p_pred, MARGIN = 2, FUN = quantile, prob = 0.055),
+    Q94.5 = apply(p_pred, MARGIN = 2, FUN = quantile, prob = 0.945),
+    Lactose = factor(Lactose))
 
 ```
 
@@ -806,13 +858,39 @@ It will take some staring at this plot to make sense of it. Pay particular atten
 If you make a composite plot with the pair of scatterplots from the first chunk in this example in one row and this new plot in row 2, it might help to make sense of the output.
 
 ```{r}
-
+ggplot() +
+  geom_ribbon(
+    data = new_data,
+    aes(x = Fat, ymin = Q5.5, ymax = Q94.5, fill = Lactose),
+    alpha = 0.25) +
+  geom_line(data = new_data, aes(x = Fat, y = Q50, color = Lactose)) +
+  facet_grid(. ~ Lactose) +
+  labs(x = "Fat Percentage", y = "Milk Energy")
 ```
+
 
 ### Summarizing the posterior
 
 Summarize the posterior however you think is appropriate.
 
 ```{r}
+post <- fm |>
+  spread_rvars(
+    b_Fat,
+    b_Lactose,
+    b_Intercept
+  ) |>
+  mutate(
+    `Fat vs. Intercept` = b_Fat - b_Intercept,
+    `Lactose vs. Intercept` = b_Lactose - b_Intercept,
+    .keep = "none")
 
+post |>
+  pivot_longer(cols = everything()) |>
+  ggplot(aes(xdist = value, fill = name)) +
+  stat_slab(alpha = 0.5) +
+  scale_fill_manual(values = c("red", "blue"), name = "Contrast") +
+  labs(x = "Fat/Lactose vs Control", y = "Density")
+
+median_hdi(post, .width = 0.89)
 ```
