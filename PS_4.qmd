@@ -524,7 +524,7 @@ One approach that works well in some (most? all?) situations is to create a new 
 You can do this with a simple mutate, joining the two variables:
 
 ```{r}
-#| eval: false
+#| eval: true
 
 bird <- bird |>
   mutate(Sex_Trt = factor(paste(Sex, Treatment, sep = "_")))
