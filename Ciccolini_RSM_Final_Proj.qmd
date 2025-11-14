@@ -1,0 +1,180 @@
+---
+title: "Final Project"
+author:
+  - Skylar Ciccolini
+format: 
+  html:
+    embed-resources: true
+---
+
+## Instructions
+
+For the final project for Randomization and Simulation, you will analyze a dataset and write the methods and results sections as you would for a manuscript. Ideally, you would use a dataset you are working on analyzing and intending to publish but you can use any dataset if you don't have one like that right now. If you've done a similar analysis for another module in QMLS2, you should use that same dataset here.
+
+Your data and analysis doesn't have to be overly complicated, and if your actual data would demand a more complex model than we have used (e.g., multilevel or non-linear), feel free to simplify the data for the purposes of analysis.
+
+You should restrict your writing to the methods about the analysis you have done. You do not need to include the other parts of the methods describing the experiment, etc. Just include enough to know what questions you are answering and/or what hypotheses you are testing. The same is true for your results section. Simply write the sections describing the results of the analyses you do here. The entire thing should be written in this `.qmd` file, formatting the analysis, plots, etc. here. 
+
+Things to include:
+
+- The hypotheses to be tested
+- The sampling strategy
+- Your main results including empirical p-values
+- Relevant figures
+    - Although you might not include all these figures in a manuscript, they could very easily go into supplemental information.
+
+
+
+## Set Up
+
+Read in data and clean
+```{r}
+library(pacman)
+p_load(tidyverse)
+
+tick <- read_csv("raw_data/BOI_PF_adult.csv") |> 
+  select(PLOT, EhrlichiaPresence, FrancisellaPresence, RickettsiaPresence, AnaplasmaPresence, BartonellaPresence, BorreliaPresence) |> 
+  drop_na()
+
+
+pathogen_summary <- tick |>
+  group_by(PLOT) |>
+  summarise(
+    Ehrlichia = as.integer(any(EhrlichiaPresence == 1)),
+    Francisella = as.integer(any(FrancisellaPresence == 1)),
+    Anaplasma = as.integer(any(AnaplasmaPresence == 1)),
+    Rickettsia = as.integer(any(RickettsiaPresence == 1)),
+    Bartonella = as.integer(any(BartonellaPresence == 1)),
+    Borrelia = as.integer(any(BorreliaPresence == 1))
+  )
+
+
+paths <- pathogen_summary |> 
+  pivot_longer(cols = !PLOT,
+               names_to = "Pathogen",
+               values_to = "Values") |> 
+  filter(Values != 0) |> 
+  select(PLOT, Pathogen)
+
+
+```
+
+Plot Species Curve
+
+```{r}
+
+paths |>
+  ggplot(aes(PLOT, Pathogen)) +
+  geom_point() +
+  scale_x_continuous(breaks = 1:10) +
+  labs(x = "Quadrat Number", y = "Pathogen")
+```
+
+
+## Randomize
+```{r}
+birds <- tibble("quadrat" = c(rep(1, 2),
+                              rep(2, 2),
+                              rep(3, 1),
+                              rep(4, 4),
+                              rep(5, 4),
+                              rep(6, 1),
+                              rep(7, 9),
+                              rep(8, 5),
+                              rep(9, 5),
+                              rep(10, 11)),
+                "Species" = c("la", "pu",
+                              rep("la", 2),
+                              "pu",
+                              "mu", "ca", "ca", "pu",
+                              "mu", rep("ca", 3),
+                              "ca",
+                              rep("ca", 5), "la", rep("pu", 3),
+                              "mu", rep("la", 3), "pu",
+                              "mu", "ca", "la", "la", "pu",
+                              rep("mu", 3), rep("ca", 5), rep("la", 3)))
+
+nsps <- birds |> group_by(Species) |>
+  tally()
+
+pres <- birds |> group_by(Species) |>
+  summarise("pres" = length(unique(quadrat)))
+
+```
+
+```{r}
+#| echo: true
+
+sm <- function(PLOT, nsps, pres){
+  ms <- 1:PLOT
+  out <- rep(NA, length(ms))
+  for(mm in ms){
+    ss <- 0
+    for(ii in 1:length(nsps)){
+      ss <- ss+ (1- choose((PLOT - pres[ii]), mm) / choose(PLOT, mm))
+    }
+    out[mm] <- ss
+  }
+  return(out)
+}
+
+PLOT <- 5
+
+nsps <- paths |> group_by(Pathogen) |>
+  tally()
+
+pres <- paths |> group_by(Pathogen) |>
+  summarise("pres" = length(unique(PLOT))) ### pick up here and figure out why these pres and nsps are the same
+
+
+niter <- 100
+
+paths.s <- paths
+out.s <- matrix(data = NA, nrow = niter, ncol = PLOT)
+
+for(ii in 1:niter){
+  
+  paths.s$PLOT <- sample(1:PLOT, size = nrow(paths), replace = TRUE)
+  
+  nsps <- paths.s |> 
+    count(n)
+  
+  pres <- paths.s |> 
+    group_by(n) |>
+    summarise("pres" = length(unique(PLOT)))
+  
+  out.s[ii,] <- sm(PLOT, nsps$n, pres$pres)
+  
+}
+```
+
+## Visualize the curves
+
+```{r}
+out.s <- t(out.s)
+out.s <- as.data.frame(out.s)
+out.s$quadrat <- 1:10
+out.tib <- pivot_longer(out.s, -quadrat,
+                        names_to = "Iter",
+                        values_to = "Sp")
+
+  ggplot() +
+  geom_line(data = out.tib, aes(quadrat, Sp, group = Iter), alpha = 1/16) +
+  geom_line(data = oo, aes(quadrat, Sp), color = "red") +
+  scale_x_continuous(breaks = 1:10) +
+  labs(x = "Quadrat Number", y = "Species")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
