@@ -32,29 +32,20 @@ Read in data and clean
 library(pacman)
 p_load(tidyverse)
 
-tick <- read_csv("raw_data/BOI_PF_adult.csv") |> 
-  select(PLOT, EhrlichiaPresence, FrancisellaPresence, RickettsiaPresence, AnaplasmaPresence, BartonellaPresence, BorreliaPresence) |> 
-  drop_na()
+tick_23 <- read_csv("raw_data/tickdrag2023_clean.csv") |> 
+  filter(YearColl == 2023) |> 
+  select(Plot, Count, Species_Name) |> 
+  mutate(Species_Name = case_when(
+    Species_Name == "Dermacentor variabilis" ~ "DV",
+    Species_Name == "Amblyomma americanum" ~ "AA",
+    Species_Name == "Amblyomma maculatum" ~ "AM",
+    Species_Name == "Dermacentor andersoni" ~ "DA"
+  )) |> 
+  filter(Species_Name != "NA") |> 
+  uncount(weights = Count)
 
 
-pathogen_summary <- tick |>
-  group_by(PLOT) |>
-  summarise(
-    Ehrlichia = as.integer(any(EhrlichiaPresence == 1)),
-    Francisella = as.integer(any(FrancisellaPresence == 1)),
-    Anaplasma = as.integer(any(AnaplasmaPresence == 1)),
-    Rickettsia = as.integer(any(RickettsiaPresence == 1)),
-    Bartonella = as.integer(any(BartonellaPresence == 1)),
-    Borrelia = as.integer(any(BorreliaPresence == 1))
-  )
 
-
-paths <- pathogen_summary |> 
-  pivot_longer(cols = !PLOT,
-               names_to = "Pathogen",
-               values_to = "Values") |> 
-  filter(Values != 0) |> 
-  select(PLOT, Pathogen)
 
 
 ```
@@ -62,88 +53,88 @@ paths <- pathogen_summary |>
 Plot Species Curve
 
 ```{r}
-
-paths |>
-  ggplot(aes(PLOT, Pathogen)) +
-  geom_point() +
-  scale_x_continuous(breaks = 1:10) +
-  labs(x = "Quadrat Number", y = "Pathogen")
-```
-
-
-## Randomize
-```{r}
-birds <- tibble("quadrat" = c(rep(1, 2),
-                              rep(2, 2),
-                              rep(3, 1),
-                              rep(4, 4),
-                              rep(5, 4),
-                              rep(6, 1),
-                              rep(7, 9),
-                              rep(8, 5),
-                              rep(9, 5),
-                              rep(10, 11)),
-                "Species" = c("la", "pu",
-                              rep("la", 2),
-                              "pu",
-                              "mu", "ca", "ca", "pu",
-                              "mu", rep("ca", 3),
-                              "ca",
-                              rep("ca", 5), "la", rep("pu", 3),
-                              "mu", rep("la", 3), "pu",
-                              "mu", "ca", "la", "la", "pu",
-                              rep("mu", 3), rep("ca", 5), rep("la", 3)))
-
-nsps <- birds |> group_by(Species) |>
-  tally()
-
-pres <- birds |> group_by(Species) |>
-  summarise("pres" = length(unique(quadrat)))
-
-```
-
-```{r}
-#| echo: true
-
-sm <- function(PLOT, nsps, pres){
-  ms <- 1:PLOT
+sm <- function(Plot, nsps, pres){
+  ms <- 1:Plot
   out <- rep(NA, length(ms))
   for(mm in ms){
     ss <- 0
     for(ii in 1:length(nsps)){
-      ss <- ss+ (1- choose((PLOT - pres[ii]), mm) / choose(PLOT, mm))
+      ss <- ss+ (1- choose((Plot - pres[ii]), mm) / choose(Plot, mm))
     }
     out[mm] <- ss
   }
   return(out)
 }
 
-PLOT <- 5
+Plot <- 5
+pres <- c(5, 5, 5, 5)
+nsps <- c(1769, 108, 86, 817)
 
-nsps <- paths |> group_by(Pathogen) |>
+nsps <- tick_23 |> group_by(Species_Name) |>
   tally()
 
-pres <- paths |> group_by(Pathogen) |>
-  summarise("pres" = length(unique(PLOT))) ### pick up here and figure out why these pres and nsps are the same
+pres <- tick_23 |> group_by(Species_Name) |>
+  summarise("pres" = length(unique(Plot)))
 
 
-niter <- 100
+out <- sm(Plot, nsps, pres)
 
-paths.s <- paths
-out.s <- matrix(data = NA, nrow = niter, ncol = PLOT)
+oo <- tibble("plot" = 1:5,
+             "Sp" = out)
+
+oo |>
+  ggplot(aes(plot, Sp)) +
+  geom_point() +
+  scale_x_continuous(breaks = 1:5) +
+  labs(x = "Quadrat Number", y = "Species")
+
+```
+
+
+## Randomize
+
+```{r}
+
+sm <- function(Plot, nsps, pres){
+  ms <- 1:Plot
+  out <- rep(NA, length(ms))
+  for(mm in ms){
+    ss <- 0
+    for(ii in 1:length(nsps)){
+      ss <- ss+ (1- choose((Plot - pres[ii]), mm) / choose(Plot, mm))
+    }
+    out[mm] <- ss
+  }
+  return(out)
+}
+
+Plot <- 5
+
+nsps <- tick_23 |> group_by(Species_Name) |>
+  tally()
+
+pres <- tick_23 |> group_by(Species_Name) |>
+  summarise("pres" = length(unique(Plot)))
+
+
+niter <- 10000
+
+tick_23.s <- tick_23
+
+out.s <- matrix(data = NA, nrow = niter, ncol = Plot)
 
 for(ii in 1:niter){
   
-  paths.s$PLOT <- sample(1:PLOT, size = nrow(paths), replace = TRUE)
+  tick_23.s$Plot <- sample(1:Plot, size = nrow(tick_23), replace = TRUE)
   
-  nsps <- paths.s |> 
-    count(n)
+  nsps <- tick_23.s |> 
+    count(Species_Name)
   
-  pres <- paths.s |> 
-    group_by(n) |>
-    summarise("pres" = length(unique(PLOT)))
+  pres <- tick_23.s |> 
+    group_by(Species_Name) |>
+    summarise("pres" = length(unique(Plot)))
   
-  out.s[ii,] <- sm(PLOT, nsps$n, pres$pres)
+  out.s[ii,] <- sm(Plot, nsps$n, pres$pres)
   
 }
 ```
@@ -151,18 +142,18 @@ for(ii in 1:niter){
 ## Visualize the curves
 
 ```{r}
-out.s <- t(out.s)
-out.s <- as.data.frame(out.s)
-out.s$quadrat <- 1:10
-out.tib <- pivot_longer(out.s, -quadrat,
+out.st <- t(out.s)
+out.st <- as.data.frame(out.st)
+out.st$Plot <- 1:5
+out.tib <- pivot_longer(out.st, -Plot,
                         names_to = "Iter",
                         values_to = "Sp")
 
   ggplot() +
-  geom_line(data = out.tib, aes(quadrat, Sp, group = Iter), alpha = 1/16) +
+  geom_line(data = out.tib, aes(Plot, Sp, group = Iter), alpha = 1/16) +
   geom_line(data = oo, aes(quadrat, Sp), color = "red") +
   scale_x_continuous(breaks = 1:10) +
-  labs(x = "Quadrat Number", y = "Species")
+  labs(x = "Quadrat Number", y = "Species") ## well, I got a curve, but I'm pretty sure my data is not working...
 ```
 
 
