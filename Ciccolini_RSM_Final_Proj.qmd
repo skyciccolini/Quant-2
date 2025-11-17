@@ -67,14 +67,14 @@ sm <- function(Plot, nsps, pres){
 }
 
 Plot <- 5
-pres <- c(5, 5, 5, 5)
+pres <- c(5, 5, 4, 5) ## changed a 5 to a 4 for testing
 nsps <- c(1769, 108, 86, 817)
 
-nsps <- tick_23 |> group_by(Species_Name) |>
-  tally()
-
-pres <- tick_23 |> group_by(Species_Name) |>
-  summarise("pres" = length(unique(Plot)))
+# nsps <- tick_23 |> group_by(Species_Name) |>
+#   tally()
+# 
+# pres <- tick_23 |> group_by(Species_Name) |>
+#   summarise("pres" = length(unique(Plot)))
 
 
 out <- sm(Plot, nsps, pres)
@@ -110,14 +110,7 @@ sm <- function(Plot, nsps, pres){
 
 Plot <- 5
 
-nsps <- tick_23 |> group_by(Species_Name) |>
-  tally()
-
-pres <- tick_23 |> group_by(Species_Name) |>
-  summarise("pres" = length(unique(Plot)))
-
-
-niter <- 10000
+niter <- 1000
 
 tick_23.s <- tick_23
 
@@ -151,8 +144,8 @@ out.tib <- pivot_longer(out.st, -Plot,
 
   ggplot() +
   geom_line(data = out.tib, aes(Plot, Sp, group = Iter), alpha = 1/16) +
-  geom_line(data = oo, aes(quadrat, Sp), color = "red") +
-  scale_x_continuous(breaks = 1:10) +
+  geom_line(data = oo, aes(plot, Sp), color = "red") +
+  scale_x_continuous(breaks = 1:5) +
   labs(x = "Quadrat Number", y = "Species") ## well, I got a curve, but I'm pretty sure my data is not working...
 ```
 
