@@ -170,7 +170,7 @@ for(ii in 1:length(salmon$ID)) {
   pseudovals[ii] <- length(salmon$ID) * H2.0 - (length(salmon$ID) - 1) * H2.p
 }
 
-salmon_jack <- tibble(ps = pseudovals, freq = allele_freq) ### this seems wrong
+salmon_jack <- tibble(ps = pseudovals, freq = allele_freq)
 
 ```
 
@@ -179,7 +179,7 @@ Plot a histogram of your estimates of allele frequency and of your pseudovalues.
 ```{r}
 #| echo: true
 
-pseudovals |>
+salmon_jack |>
   ggplot(aes(ps)) +
   geom_histogram(fill = "grey75", bins = 50) +
   labs(y = "Count", x = "Pseudovalue")
@@ -188,18 +188,18 @@ pseudovals |>
 
 What do you notice about these estimates and pseudovalues? Give a brief explanation for your observations. Do you have any concerns about using the jackknife method in this application?
 
-> I have concerns. All of my pseudovalues are the same
+> The pseudovalues are all 0 or 1 which makes sense since thats what the original allele counts were.I don't think I have any concerns.
 
 
 Get the jackknife estimate of the mean and confidence interval as we did in lecture.
 
 ```{r}
 #| echo: true
-mu_ps <- mean(pseudovals$ps)
+mu_ps <- mean(salmon_jack$ps)
 ci_ps <- c(mu_ps + qt(0.975, length(salmon$ID) - 1) * 
-             sd(pseudovals$ps) / sqrt(length(salmon$ID)),
+             sd(salmon_jack$ps) / sqrt(length(salmon$ID)),
            mu_ps - qt(0.975, length(salmon$ID) - 1) * 
-             sd(pseudovals$ps) / sqrt(length(salmon$ID)))
+             sd(salmon_jack$ps) / sqrt(length(salmon$ID)))
 
 
 ```
@@ -210,17 +210,18 @@ Now let's try the bootstrap. Load the `boot` library and examine the help for th
 #| echo: true
 
 
-salmon_full <- rep(salmon$ID, salmon$Clock_Allele) 
+salmon_full <- salmon
+
 
 freq <- function(salmon,indicies) {
-  frequency <- sum(salmon[indicies])/length(salmon$ID)
+  frequency <- sum(salmon$Clock_Allele[indicies])/length(salmon$ID)
   return(frequency)
 }
 
 salmon_bs <- boot(data = salmon_full,
                 statistic = freq,
                 R = 1000,
-                stype = "i") ###
+                stype = "i")
 
 ```
 
@@ -229,7 +230,7 @@ Use `str()` to look at the output of `boot` and use the help to find the bootstr
 ```{r}
 #| echo: true
   
-str(salmon_bs) ###
+str(salmon_bs)
 
 bp <- tibble(t = salmon_bs$t) |>
   ggplot(aes(t)) +
@@ -241,7 +242,7 @@ bp
 
 What do you notice about your bootstrap replicates? Give a brief explanation for your observations. Do you have any concerns about using the bootstrap method in this application?
 
-> ###
+> They seem normally distributed around 1.8, which makes sense since that is the mean frequency for the clock allele. I have some concerns that the dataset is good representation of the true distribution.
 
 
 Use the `boot.ci` function to get a confidence interval specifying the percentile method and compare your results to the jackknife CI. 
@@ -249,7 +250,7 @@ Use the `boot.ci` function to get a confidence interval specifying the percentil
 ```{r}
 #| echo: true
 
-boot.ci(salmon_bs, type = "perc") ###
+boot.ci(salmon_bs, type = "perc")
 
 ```
 
@@ -270,59 +271,106 @@ There are many examples in the literature using simulations to demonstrate the b
 # set up
 freq_c
 n <- 100
+niter <- 100
 
-# generate rand numbers
-bi <- rbinom(n = n, prob = freq_c, size = 1)
-
-bi_allele <- tibble(ID = salmon$ID,
-                    Clock_Allele_bi = bi)
-
-# jackknife
-H2.0 <- freq_c
-
-pseudovals <- numeric(length = length(bi_allele$ID))
-allele_freq <- numeric(length = length(bi_allele$ID))
-
-for(ii in 1:length(bi_allele$ID)) {
-  # delete line ii
-  bi_allele.p <- bi_allele |>
-    filter(ID != ID[ii])
-  
-  # estimate frequency
-  H2.p <- sum(bi_allele.p$Clock_Allele_bi)/length(bi_allele.p$ID)
-  
-  # save allele freq
-  allele_freq[ii] <- H2.p
-  
-  #calculate pseudovalue
-  pseudovals[ii] <- length(bi_allele$ID) * H2.0 - (length(bi_allele$ID) - 1) * H2.p
+freq <- function(salmon,indicies) {
+  frequency <- sum(salmon$Clock_Allele_bi[indicies])/length(salmon$ID)
+  return(frequency)
 }
 
-bi_salmon_jack <- tibble(ps = pseudovals, freq = allele_freq)
+# CI loop
 
-mu_ps <- mean(bi_salmon_jack$ps)
+ci_results <- tibble(
+  jack_lwr = numeric(niter),
+  jack_upr = numeric(niter),
+  boot_lwr = numeric(niter),
+  boot_upr = numeric(niter)
+)
 
-ci_ps <- c(mu_ps + qt(0.975, length(salmon$ID) - 1) * 
+for (i in 1:niter) {
+  # generate rand numbers
+  bi <- rbinom(n = n, prob = freq_c, size = 1)
+
+  bi_allele <- tibble(ID = salmon$ID,
+                    Clock_Allele_bi = bi)
+  # jackknife
+  H2.0 <- freq_c
+
+  pseudovals <- numeric(length = length(bi_allele$ID))
+  allele_freq <- numeric(length = length(bi_allele$ID))
+
+  for(ii in 1:length(bi_allele$ID)) {
+    # delete line ii
+    bi_allele.p <- bi_allele |>
+      filter(ID != ID[ii])
+  
+    # estimate frequency
+    H2.p <- sum(bi_allele.p$Clock_Allele_bi)/length(bi_allele.p$ID)
+  
+    # save allele freq
+    allele_freq[ii] <- H2.p
+  
+    #calculate pseudovalue
+    pseudovals[ii] <- length(bi_allele$ID) * H2.0 - (length(bi_allele$ID) - 1) * H2.p
+  }
+
+  bi_salmon_jack <- tibble(ps = pseudovals, freq = allele_freq)
+
+  mu_ps <- mean(bi_salmon_jack$ps)
+
+  ci_ps <- c(mu_ps + qt(0.975, length(salmon$ID) - 1) * 
              sd(bi_salmon_jack$ps) / sqrt(length(salmon$ID)),
            mu_ps - qt(0.975, length(salmon$ID) - 1) * 
              sd(bi_salmon_jack$ps) / sqrt(length(salmon$ID)))
+  
+  # boot strap
+
+  bi_salmon_bs <- boot(data = bi_allele,
+                statistic = freq,
+                R = n,
+                stype = "i")
+
+  ci_bs <- boot.ci(bi_salmon_bs, type = "perc")$percent[4:5]
+  
+  # store cis in tibble
+  ci_results$jack_lwr[i] <- ci_ps[1]
+  ci_results$jack_upr[i] <- ci_ps[2]
+  ci_results$boot_lwr[i] <- ci_bs[1]
+  ci_results$boot_upr[i] <- ci_ps[2]
 
 
-# boot strap
+}
 
 
 # percent that ci includes true freq
+
+ci_true <- tibble(
+  jack = numeric(niter),
+  boot = numeric(niter)
+)
+
+ci_true$jack <- ifelse(ci_results$jack_lwr <= freq_c & freq_c <= ci_results$jack_upr, 1, 0)
+
+sum(ci_true$jack)/length(ci_true)
+
+ci_true$boot <- ifelse(ci_results$boot_lwr <= freq_c & freq_c <= ci_results$boot_upr, 1, 0)
+
+sum(ci_true$boot)/length(ci_true)
+
+
+
+
 
 
 ```
 
 Based on your simulation, do you think these methods would work well for calculating CIs for this salmon study and similar studies of allele frequencies? Why or why not?
 
->
+> I think the boot strap works ok, but the jacknife doesn't work very well at all. The boot strap ci contained the true freq about 25% of the time, but the jackknife rarely contained it.
 
 What values should further simulations change to test the generality of these methods? (Try some out if you wish)
 
->
+> I would change up the allele frequencies and the number of samples in the original data set. I think with a larger dataset to start with, the methods may work better.
 
 
 # Sticklebacks 
