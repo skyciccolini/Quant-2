@@ -271,7 +271,7 @@ There are many examples in the literature using simulations to demonstrate the b
 # set up
 freq_c
 n <- 100
-niter <- 100
+niter <- 10000
 
 freq <- function(salmon,indicies) {
   frequency <- sum(salmon$Clock_Allele_bi[indicies])/length(salmon$ID)
@@ -595,7 +595,7 @@ apply(rand.out, 2, function(x) sum(abs(x) >= abs(x[1]))/length(x))
 
 What do you conclude from this randomization test? Which set of test statistics do you think is most appropriate in this case? 
 
-> ###
+> The mean seems to be the most appropriate test statistic.
 
 Here, we are not doing just one test. Let's consider the set of tests using the differences in the medians. For the empirical nulls you have generated here (a set of three pairwise differences in medians), you can count the number of times you get a difference as extreme or more across all three of your differences at various magnitudes. This quantity is the expected number of false positives across your three tests and will become useful when we use sampling methods to assess false positive and false discovery rates. Let's calculate this for one threshold value to see how this would work. 
 
