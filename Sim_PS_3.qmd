@@ -108,6 +108,13 @@ Perform a chi-squared test with and without `simulate.p.value = TRUE`.
 
 ```{r}
 
+mice <- as.table(c(201, 203))
+dimnames(mice) <- list(pheno = c("muscle", "wild"))
+
+(chi <- chisq.test(mice, simulate.p.value = TRUE))
+
+(chi <- chisq.test(mice, simulate.p.value = FALSE))
+
 ```
 
 There is not a way to randomize these counts by shuffling, because, if you simply shuffle the genotypes, you will end up with the same counts (the Chi-squared test uses aggregated counts only). Instead, the Monte Carlo simulation used here produces a null expectation based on the total sample size and the null hypothesis. Here, the test is for a 1:1 ratio or equal proportions. Simulate a set of two counts with a 1:1 expectation. Then repeat this 2,000 times and calculate a *P*-value based on this simulation. 
@@ -139,35 +146,121 @@ Block designs are used often to help isolate the effects of treatments. Consider
 
 ```{r}
 
+prairie <- read_csv("raw_data/prairie.csv")
+
+head(prairie, 10)
+
+ggplot(data = prairie) +
+  geom_point(aes(x = Block, y = Richness, color = Treatment))
 ```
 
 Fit a multilevel model using `lme()` with Block as a random effect. To assess the significance of the treatment effect overall, fit the model with `method = "ML"` to use maximum likelihood. Then fit a model without treatment and use `lrtest()` in the `lmtest` package to perform a likelihood ratio test comparing the models with and without treatment. Unit 10 in QMLS 1 covered likelihood ratio tests, and PS 10 has examples.
 
 ```{r}
 
+mod <- lme(Richness ~ Treatment, random = ~ 1 | Block, 
+           data = prairie, method = "ML")
+
+mod_noml <- lme(Richness ~ 1, random = ~ 1 | Block,
+                data = prairie, method = "ML")
+
+lrt <- lrtest(mod, mod_noml)
+
+obs <- as.numeric(lrt$`Chisq`[2])
+
 ```
 
 Here, observations are not exchangeable between experimental units. Thus, we need to randomize treatment within each block. Perform a small set of just 100 shuffles within blocks and perform the same likelihood ratio test using the chi-squared statistic as your statistic of interest. Estimate the time it takes to run this set. Then calculate how long it would take to run 10,000 permutations.
 
 ```{r}
+# shuffle once
+
+blk <- unique(prairie$Block)
+
+prairie.s <- prairie |> group_by(Block) |>
+  mutate(Treatment.s = sample(Treatment))
+
+# initial chi
+obs <- obs
+
+# shuffle more than once
+niter <- 100
+output <- tibble("chi" = rep(NA, niter))
+output$chi[1] <- obs
+
+for (ii in 2:niter) {
+  prairie.s <- prairie |> group_by(Block) |>
+  mutate(Treatment.s = sample(Treatment))
+  
+ mod <- lme(Richness ~ Treatment.s, random = ~ 1 | Block, 
+           data = prairie.s, method = "ML")
+
+mod_noml <- lme(Richness ~ 1, random = ~ 1 | Block,
+                data = prairie.s, method = "ML")
+
+lrt <- lrtest(mod, mod_noml)
+
+  output$chi[ii] <- as.numeric(lrt$`Chisq`[2])
+}
 
 ```
 
 This would take a bit of time (estimated at about 200 seconds on this machine) so let's use the `future_map_dbl()` approach. Convert your code into a function that will accept an iteration number and the data and will return your test statistic. Test the function a couple times to ensure you get the expected result.   
 
 ```{r}
+niter <- 100
+
+chi_fcn <- function(ii, prairie) {
+  prairie.s <- prairie |> group_by(Block) |>
+  mutate(Treatment.s = sample(Treatment))
+  
+ mod <- lme(Richness ~ Treatment.s, random = ~ 1 | Block, 
+           data = prairie.s, method = "ML")
+
+mod_noml <- lme(Richness ~ 1, random = ~ 1 | Block,
+                data = prairie.s, method = "ML")
+
+lrt <- lrtest(mod, mod_noml)
+
+  d <- as.numeric(lrt$`Chisq`[2])
+  return(d)
+}
+
+furr_out <- future_map_dbl(.x = seq_len(niter),
+                      .f = chi_fcn,
+                      prairie = prairie,
+                      .options = furrr_options(seed = TRUE))
+
 
 ```
 
 Figure out how many cores your local computer has using `availableCores()` and use `plan()` to set up a multisession. Make sure to omit 1 core for the OS to keep running. Then use `future_map_dbl` with your function to perform 10,000 permutations. Feel free to time this chunk of code to see what the realized speed increase is.
 
 ```{r}
+# find number of cores
+(ncores <- parallelly::availableCores(omit = 1))
+
+plan(multisession, workers = ncores)
+
+niter <- 10000
+furr_out <- future_map_dbl(.x = seq_len(niter),
+                      .f = chi_fcn,
+                      prairie = prairie,
+                      .options = furrr_options(seed = TRUE))
+
+furr_tib <- as_tibble(furr_out)
 
 ```
 
 Make a histogram of your chi-squared test statistic and add a line for your observed. Calculate an empirical p-value. 
 
 ```{r}
+ggplot(data = furr_tib) +
+  geom_histogram(aes(value)) +
+  geom_vline(aes(xintercept = obs), color = "red")
+
+# calculate empirical p value
+emp.ps <- apply(output_r, 2, function(x) sum(abs(x) >= abs(x[1]))/length(x))
 
 ```
 
