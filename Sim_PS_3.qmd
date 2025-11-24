@@ -120,24 +120,62 @@ dimnames(mice) <- list(pheno = c("muscle", "wild"))
 There is not a way to randomize these counts by shuffling, because, if you simply shuffle the genotypes, you will end up with the same counts (the Chi-squared test uses aggregated counts only). Instead, the Monte Carlo simulation used here produces a null expectation based on the total sample size and the null hypothesis. Here, the test is for a 1:1 ratio or equal proportions. Simulate a set of two counts with a 1:1 expectation. Then repeat this 2,000 times and calculate a *P*-value based on this simulation. 
 
 ```{r}
+obs <- c(201, 208)
+obs_diffs <- abs(obs[1]-obs[2])
+n <- 409
+niter <- 2000
+sim_diffs <- as.vector(length(niter))
+
+for (ii in 1:niter) {
+  # simulate number of muscle mice
+    mus <- rbinom(n = 1, size = n, prob = 0.5)
+
+  # difference between groups
+    sim_diffs[ii] <- abs(mus - (n -mus))
+}
+
+
+mean(sim_diffs >= obs_diffs)
 
 ```
 
 Compare your results to the output of the `chisq.test()` function with simulation you used above.
 
->
+> My empirical p value is about 0.2 smaller than the chi square p value.
 
 Now consider another similar back-cross experiment looking at a different phenotype, a white head fur blaze, with a much smaller sample size. Here, 12 individuals had the white blaze and 9 did not. Repeat all the steps above for this example.  
 
 
 ```{r}
+# 12 with white, 9 not
+mice <- as.table(c(12, 9))
+dimnames(mice) <- list(pheno = c("w", "n"))
 
+(chi <- chisq.test(mice, simulate.p.value = TRUE))
+
+(chi <- chisq.test(mice, simulate.p.value = FALSE))
+
+obs <- c(12, 9)
+obs_diffs <- abs(obs[1]-obs[2])
+n <- 21
+niter <- 2000
+
+for (ii in 1:niter) {
+  # simulate number of muscle mice
+    mus <- rbinom(n = 1, size = n, prob = 0.5)
+
+  # difference between groups
+    sim_diffs[ii] <- abs(mus - (n -mus))
+}
+
+
+mean(sim_diffs >= obs_diffs)
 
 ```
 
 Consider how the "null hypothesis" is being used statistically here. How well do you think this test supports a conclusion of a 1:1 ratio in the second example and how certain should you be about that conclusion? Do you have any ideas for a different simulation that might be more appropriate for making a conclusion about the inheritance mechanism of the white blaze?
 
-> 
+> I don't feel very certain that a 1:1 ratio is present in the second example. Maybe I could increase the number of iterations?
 
 
 ## Restoration Treatments in Prairies in a Block Design
@@ -260,7 +298,7 @@ ggplot(data = furr_tib) +
   geom_vline(aes(xintercept = obs), color = "red")
 
 # calculate empirical p value
-emp.ps <- apply(output_r, 2, function(x) sum(abs(x) >= abs(x[1]))/length(x))
+emp.ps <- apply(furr_tib, 2, function(x) sum(abs(x) >= abs(x[1]))/length(x))
 
 ```
 
