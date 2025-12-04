@@ -23,7 +23,14 @@ Things to include:
 - Relevant figures
     - Although you might not include all these figures in a manuscript, they could very easily go into supplemental information.
 
+## Hypothesis
+I want to test whether or not the ticks are clustered in plots, or are randomly distributed.
 
+## Sampling Strategy
+First, I created a function that would calculate the species curve for ticks collected across 5 different plots. I then simulated 1000 species curves by randomizing the plots that the ticks were collected in.
+
+## Results
+By visually comparing the original species curve to the simulated curves, I think that my data is problematic for using this method. While we collected ticks of four different species, our collection was dominated by two species in particular, *A. americanum* and *D. variabilis*. I think there may not have been enough of a difference between plots, in terms of tick species collected, and this caused the unusual behavior in my simulation results. ### empirical pvalue
 
 ## Set Up
 
@@ -33,7 +40,9 @@ library(pacman)
 p_load(tidyverse)
 
 tick_23 <- read_csv("raw_data/tickdrag2023_clean.csv") |> 
-  filter(YearColl == 2023) |> 
+  filter(YearColl == 2023,
+         Site == "Prairie Fork",
+         ) |> 
   select(Plot, Count, Species_Name) |> 
   mutate(Species_Name = case_when(
     Species_Name == "Dermacentor variabilis" ~ "DV",
@@ -86,7 +95,7 @@ oo |>
   ggplot(aes(plot, Sp)) +
   geom_point() +
   scale_x_continuous(breaks = 1:5) +
-  labs(x = "Quadrat Number", y = "Species")
+  labs(x = "Plot Number", y = "Species")
 
 ```
 
@@ -146,7 +155,7 @@ out.tib <- pivot_longer(out.st, -Plot,
   geom_line(data = out.tib, aes(Plot, Sp, group = Iter), alpha = 1/16) +
   geom_line(data = oo, aes(plot, Sp), color = "red") +
   scale_x_continuous(breaks = 1:5) +
-  labs(x = "Quadrat Number", y = "Species") ## well, I got a curve, but I'm pretty sure my data is not working...
+  labs(x = "Plot Number", y = "Species")
 ```
 
 
