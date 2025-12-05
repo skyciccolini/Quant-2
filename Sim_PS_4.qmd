@@ -213,7 +213,31 @@ Let's walk through a single simulated dataset to consider how we might simulate 
 ```{r}
 #| echo: true
 
+bio <- 50
+mu_diff <- 10
+sd_aphid <- 3
+sd_control <- 1
 
+Group <- c("aphid", "control")
+
+
+sim <- tibble(
+  ID = sample(Group, size = bio, replace = TRUE),
+  SA = case_when(sim$ID == "control" ~ rnorm(bio, 0, sd_control),
+                  sim$ID == "aphid" ~ rnorm(bio, (0 + mu_diff), sd_aphid))
+)
+
+
+nsims <- 1e4
+alpha <- 0.05
+ns <- c(5, 10, 25, 50, 100, 200, 400)
+b_null <- 1/3
+b_devs <- seq(-0.2, 0.2, length.out = 100)
+
+# All combinations of ns and b_devs
+pwr_reg <- crossing(ns, b_devs)
+names(pwr_reg) <- c("n", "b_dev")
+pwr_reg$Power <- NA
 
 ```
 
@@ -228,6 +252,20 @@ You can pass a vector of means and standard deviations to `rnorm()`. This can be
 
 ```{r}
 #| echo: true
+
+n_tech <- 5
+sd_tech <- 2
+
+tib <- tibble(
+  PlantID = rep(1:bio, each = n_tech),
+  Treatment = rep(sample(Group, size = bio, replace = TRUE), each = n_tech)) |> 
+  mutate(
+  SA = case_when(Treatment == "control" ~ rnorm(n(), 0, sd_control),
+                  Treatment == "aphid" ~ rnorm(n(), (0 + mu_diff), sd_aphid)),
+  SA_sim = case_when(Treatment == "control" ~ rnorm(n(), 0, sd_tech),
+                  Treatment == "aphid" ~ rnorm(n(), (0 + mu_diff), sd_tech))
+)
+
 
 num <- 10
 mu <- 0
@@ -255,6 +293,12 @@ rnorm(num, mus, sss)
 ```{r}
 #| echo: false
 
+library(lmer)
+
+mixmod <- lmer(SA_sim ~ Treatment + (1 + Treatment| PlantID),
+               data = tib)
+
+obsp <- summary(mixmod)$coefficients["Treatmentcontrol"] ### not working
 
 ```
 
@@ -271,6 +315,8 @@ Focus on exploring the number of biological vs technical replicates an how that 
 ```{r}
 #| echo: true
 
+### do this
+
 
 ```
 
@@ -286,10 +332,10 @@ Run the chunk below to load the data and set it up as we did in QMLS1. You may n
 ```{r}
 #| echo: true
 
-Temp_Data <- read_excel("../Data/Streams.xlsx",
+Temp_Data <- read_excel("raw_data/Streams.xlsx",
                         sheet = "TemperatureData")
 
-Site_Data <- read_excel("../Data/Streams.xlsx", sheet = "SiteData")
+Site_Data <- read_excel("raw_data/Streams.xlsx", sheet = "SiteData")
 
 MM <- left_join(Temp_Data, Site_Data)
 
@@ -309,6 +355,14 @@ In QMLS1, we fit two models to these data. In both models we want to model water
 ```{r}
 #| echo: true
 
+library(lme4)
+
+mod1 <- lmer(WaterTemp ~ AirTempPredicted + (1 | Stream_Name) + (1 | Stream_Name:Site), 
+           data = MM)
+
+mod2 <- lmer(WaterTemp ~ AirTempPredicted + Day + (1 | Stream_Name) + (1 | Stream_Name:Site), 
+           data = MM)
+
 ```
 
 In QMLS1, we compared models using AIC. Let's take a cross-validation approach here. The approach to leaving observations out is not straight-forward here, given the observations are not independent. Let's take the approach where we leave one observation out at a time. This leave-one-out approach is not ideal, because sites are nested within streams, but if we leave out an entire site or stream, then we can't do prediction in the usual way (i.e., with `predict()`).
@@ -318,12 +372,51 @@ Use LOOCV to compare both models above, using `predict()` to get predicted value
 ```{r}
 #| echo: true
 
+MM <- MM |> 
+  mutate(k = sample(rep(1:3744)))
+
+CV_fun_1 <- function(k_fold, MM) {
+  MMk <- MM |> filter(k != k_fold)
+  lmk <- lmer(WaterTemp ~ AirTempPredicted + (1 | Stream_Name) + (1 | Stream_Name:Site), 
+           data = MMk)
+  
+  MM |> filter(k == k_fold) |> 
+    mutate(y_hat = predict(lmk, newdata = MM |> filter(k == k_fold)),
+           Error = y - y_hat,
+           Squared_error = Error ^ 2,
+           Absolute_error = abs(Error))
+}
+
+
+CV_mod1 <- future_map(.x = 1:3744,
+                    .f = CV_fun_1,
+                    MM = MM) |> 
+  list_rbind()
+
+CV_fun_2 <- function(k_fold, MM) {
+  MMk <- MM |> filter(k != k_fold)
+  lmk <- lmer(WaterTemp ~ AirTempPredicted + Day + (1 | Stream_Name) + (1 | Stream_Name:Site), 
+           data = MMk)
+  
+  MM |> filter(k == k_fold) |> 
+    mutate(y_hat = predict(lmk, newdata = MM |> filter(k == k_fold)),
+           Error = y - y_hat,
+           Squared_error = Error ^ 2,
+           Absolute_error = abs(Error))
+}
+
+CV_mod2 <- future_map(.x = 1:3744,
+                    .f = CV_fun_2,
+                    MM = MM) |> 
+  list_rbind()
+
+
 ```
 
 
 Which model would you conclude is preferable?
 
->
+> ###
 
 
 
