@@ -7,139 +7,103 @@ format:
     embed-resources: true
 ---
 
-## Instructions
-
-For the final project for Randomization and Simulation, you will analyze a dataset and write the methods and results sections as you would for a manuscript. Ideally, you would use a dataset you are working on analyzing and intending to publish but you can use any dataset if you don't have one like that right now. If you've done a similar analysis for another module in QMLS2, you should use that same dataset here.
-
-Your data and analysis doesn't have to be overly complicated, and if your actual data would demand a more complex model than we have used (e.g., multilevel or non-linear), feel free to simplify the data for the purposes of analysis.
-
-You should restrict your writing to the methods about the analysis you have done. You do not need to include the other parts of the methods describing the experiment, etc. Just include enough to know what questions you are answering and/or what hypotheses you are testing. The same is true for your results section. Simply write the sections describing the results of the analyses you do here. The entire thing should be written in this `.qmd` file, formatting the analysis, plots, etc. here. 
-
-Things to include:
-
-- The hypotheses to be tested
-- The sampling strategy
-- Your main results including empirical p-values
-- Relevant figures
-    - Although you might not include all these figures in a manuscript, they could very easily go into supplemental information.
-
 ## Hypothesis
 I want to test whether or not the ticks are clustered in plots, or are randomly distributed.
 
 ## Sampling Strategy
-First, I created a function that would calculate the species curve for ticks collected across 5 different plots. I then simulated 1000 species curves by randomizing the plots that the ticks were collected in.
+First, I created a function that would calculate the species curve for ticks collected across 5 different plots. I then simulated 1000 species curves by randomizing the plots that the ticks were collected in. I calculated the empirical p values using a function that counted the number of times that the true species curve was less than the simulated curves (for each plot).
 
 ## Results
-By visually comparing the original species curve to the simulated curves, I think that my data is problematic for using this method. While we collected ticks of four different species, our collection was dominated by two species in particular, *A. americanum* and *D. variabilis*. I think there may not have been enough of a difference between plots, in terms of tick species collected, and this caused the unusual behavior in my simulation results. ### empirical pvalue
+By visually comparing the original species curve to the simulated curves, it seems like my data is pretty different than the simulated data; especially in plots 1 and 2. It seems like the ticks are exhibiting a non-random distribution at my study site. The empirical p values that I calculated for each plot also support this as plots 1 and 2 have lower p values and plots 3-5 have higher p values.
 
-## Set Up
+## Randomly generate some data
 
-Read in data and clean
 ```{r}
-library(pacman)
-p_load(tidyverse)
-
-tick_23 <- read_csv("raw_data/tickdrag2023_clean.csv") |> 
-  filter(YearColl == 2023,
-         Site == "Prairie Fork",
-         ) |> 
-  select(Plot, Count, Species_Name) |> 
-  mutate(Species_Name = case_when(
-    Species_Name == "Dermacentor variabilis" ~ "DV",
-    Species_Name == "Amblyomma americanum" ~ "AA",
-    Species_Name == "Amblyomma maculatum" ~ "AM",
-    Species_Name == "Dermacentor andersoni" ~ "DA"
-  )) |> 
-  filter(Species_Name != "NA") |> 
-  uncount(weights = Count)
-
-
-
-
-
+library(tidyverse)
+tick <- tibble("Plot" = c(rep(1, 6),
+                              rep(2, 8),
+                              rep(3, 4),
+                              rep(4, 9),
+                              rep(5, 9)),
+                "Species_Name" = c("AA", rep("DV", 3),
+                              rep("AA", 4),
+                              rep("DV", 3),
+                              rep("AM", 5), rep("DA", 3), rep("DA", 5), "DV",
+                              "AM", rep("DA", 3),
+                              "DA",
+                              rep("DA", 2), rep("AA", 2), rep("DV", 2)))
 ```
 
-Plot Species Curve
+
+## Plot Species Curve
 
 ```{r}
-sm <- function(Plot, nsps, pres){
-  ms <- 1:Plot
+sm <- function(quads, nsps, pres){
+  ms <- 1:quads
   out <- rep(NA, length(ms))
   for(mm in ms){
     ss <- 0
     for(ii in 1:length(nsps)){
-      ss <- ss+ (1- choose((Plot - pres[ii]), mm) / choose(Plot, mm))
+      ss <- ss+ (1- choose((quads - pres[ii]), mm) / choose(quads, mm))
     }
     out[mm] <- ss
   }
   return(out)
 }
 
-Plot <- 5
-pres <- c(5, 5, 4, 5) ## changed a 5 to a 4 for testing
-nsps <- c(1769, 108, 86, 817)
+tick |> group_by(Species_Name) |>
+  tally()
 
-# nsps <- tick_23 |> group_by(Species_Name) |>
-#   tally()
-# 
-# pres <- tick_23 |> group_by(Species_Name) |>
-#   summarise("pres" = length(unique(Plot)))
+tick |> group_by(Species_Name) |>
+  summarise("pres" = length(unique(Plot)))
+
+quads <- 5
+pres <- c(3, 3, 3, 4) 
+nsps <- c(7, 6, 14, 9)
 
 
-out <- sm(Plot, nsps, pres)
+out <- sm(quads, nsps, pres)
 
-oo <- tibble("plot" = 1:5,
+oo <- tibble("quads" = 1:5,
              "Sp" = out)
 
 oo |>
-  ggplot(aes(plot, Sp)) +
+  ggplot(aes(quads, Sp)) +
   geom_point() +
   scale_x_continuous(breaks = 1:5) +
-  labs(x = "Plot Number", y = "Species")
+  labs(x = "Quad Number", y = "Species")
 
 ```
+
 
 
 ## Randomize
 
 ```{r}
 
-sm <- function(Plot, nsps, pres){
-  ms <- 1:Plot
-  out <- rep(NA, length(ms))
-  for(mm in ms){
-    ss <- 0
-    for(ii in 1:length(nsps)){
-      ss <- ss+ (1- choose((Plot - pres[ii]), mm) / choose(Plot, mm))
-    }
-    out[mm] <- ss
-  }
-  return(out)
-}
-
-Plot <- 5
-
 niter <- 1000
 
-tick_23.s <- tick_23
+tick.s <- tick
 
-out.s <- matrix(data = NA, nrow = niter, ncol = Plot)
+out.s <- matrix(data = NA, nrow = niter, ncol = quads)
 
-for(ii in 1:niter){
-  
-  tick_23.s$Plot <- sample(1:Plot, size = nrow(tick_23), replace = TRUE)
-  
-  nsps <- tick_23.s |> 
+
+for (ii in 1:niter) {
+ tick.s$Plot <- sample(1:quads, size = nrow(tick), replace = TRUE)
+
+  nsps <- tick.s |>  
     count(Species_Name)
   
-  pres <- tick_23.s |> 
-    group_by(Species_Name) |>
+  pres <- tick.s |>  
+    group_by(Species_Name) |> 
     summarise("pres" = length(unique(Plot)))
   
-  out.s[ii,] <- sm(Plot, nsps$n, pres$pres)
-  
+  out.s[ii,] <- sm(quads, nsps$n, pres$pres)
+
 }
 ```
+
+
 
 ## Visualize the curves
 
@@ -153,11 +117,33 @@ out.tib <- pivot_longer(out.st, -Plot,
 
   ggplot() +
   geom_line(data = out.tib, aes(Plot, Sp, group = Iter), alpha = 1/16) +
-  geom_line(data = oo, aes(plot, Sp), color = "red") +
+  geom_line(data = oo, aes(quads, Sp), color = "red") +
   scale_x_continuous(breaks = 1:5) +
   labs(x = "Plot Number", y = "Species")
 ```
 
+
+## P values
+
+```{r}
+# Initialize vector to store p values per column
+p_vals <- numeric(ncol(out.s))
+
+# Loop over columns (plots)
+for (ii in 1:ncol(out.s)) {
+  # pull out sm values for plot
+  sim_col <- out.s[, ii]
+  
+  # number of times sim is greater than real data
+  num_successes <- sum(out[ii] >= sim_col)
+  
+  # Empirical p value for this column
+  p_vals[ii] <- num_successes / length(sim_col)
+}
+
+
+
+```
 
 
 
